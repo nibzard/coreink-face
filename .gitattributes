@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.svg text
+*.png binary
+*.zip binary
+package-lock.json linguist-generated=true
+assets/faces/sprite.svg linguist-generated=true
+assets/faces/face-map.svg linguist-generated=true

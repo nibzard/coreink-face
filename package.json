@@ -1,0 +1,48 @@
+{
+  "name": "coreink-faces",
+  "version": "0.1.0",
+  "description": "Domain-neutral state-to-face library and Cloudflare device API",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types --strict-vars=false",
+    "check": "npm run types && tsc --noEmit",
+    "build": "tsc -p tsconfig.lib.json",
+    "test": "vitest run",
+    "test:runtime": "node scripts/runtime-test.mjs",
+    "deploy:check": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "type": "module",
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
+  },
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "assets/faces"
+  ],
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nibzard/coreink.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nibzard/coreink/issues"
+  },
+  "homepage": "https://github.com/nibzard/coreink#readme"
+}

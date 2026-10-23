@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "coreink-face-api",
+  "main": "src/cloudflare/worker.ts",
+  "compatibility_date": "2026-10-23",
+  "workers_dev": true,
+  "vars": {
+    "FACE_PROVIDER": "auto",
+    "JEV_MODEL": "jev-latest"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "DEVICES", "class_name": "Device" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Device"] }],
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

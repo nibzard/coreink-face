@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false, "declaration": true, "outDir": "dist", "rootDir": "src",
+    "types": [], "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/index.ts"], "exclude": ["test", "src/cloudflare"]
+}

@@ -1,0 +1,290 @@
+{
+  "viewBox": [
+    0,
+    0,
+    200,
+    200
+  ],
+  "faces": [
+    {
+      "index": 1,
+      "id": "small-dots",
+      "name": "Small dots",
+      "row": 1,
+      "column": 1,
+      "file": "small-dots.svg"
+    },
+    {
+      "index": 2,
+      "id": "large-dots",
+      "name": "Large dots",
+      "row": 1,
+      "column": 2,
+      "file": "large-dots.svg"
+    },
+    {
+      "index": 3,
+      "id": "mixed-dots",
+      "name": "Mixed dots",
+      "row": 1,
+      "column": 3,
+      "file": "mixed-dots.svg"
+    },
+    {
+      "index": 4,
+      "id": "squares",
+      "name": "Squares",
+      "row": 1,
+      "column": 4,
+      "file": "squares.svg"
+    },
+    {
+      "index": 5,
+      "id": "triangles",
+      "name": "Triangles",
+      "row": 1,
+      "column": 5,
+      "file": "triangles.svg"
+    },
+    {
+      "index": 6,
+      "id": "vertical-lines",
+      "name": "Vertical lines",
+      "row": 1,
+      "column": 6,
+      "file": "vertical-lines.svg"
+    },
+    {
+      "index": 7,
+      "id": "horizontal-lines",
+      "name": "Horizontal lines",
+      "row": 1,
+      "column": 7,
+      "file": "horizontal-lines.svg"
+    },
+    {
+      "index": 8,
+      "id": "less-than",
+      "name": "Less-than",
+      "row": 2,
+      "column": 1,
+      "file": "less-than.svg"
+    },
+    {
+      "index": 9,
+      "id": "greater-than",
+      "name": "Greater-than",
+      "row": 2,
+      "column": 2,
+      "file": "greater-than.svg"
+    },
+    {
+      "index": 10,
+      "id": "chevrons-up",
+      "name": "Chevrons up",
+      "row": 2,
+      "column": 3,
+      "file": "chevrons-up.svg"
+    },
+    {
+      "index": 11,
+      "id": "chevrons-down",
+      "name": "Chevrons down",
+      "row": 2,
+      "column": 4,
+      "file": "chevrons-down.svg"
+    },
+    {
+      "index": 12,
+      "id": "teardrops",
+      "name": "Teardrops",
+      "row": 2,
+      "column": 5,
+      "file": "teardrops.svg"
+    },
+    {
+      "index": 13,
+      "id": "stars",
+      "name": "Stars",
+      "row": 2,
+      "column": 6,
+      "file": "stars.svg"
+    },
+    {
+      "index": 14,
+      "id": "hearts",
+      "name": "Hearts",
+      "row": 2,
+      "column": 7,
+      "file": "hearts.svg"
+    },
+    {
+      "index": 15,
+      "id": "diamonds",
+      "name": "Diamonds",
+      "row": 3,
+      "column": 1,
+      "file": "diamonds.svg"
+    },
+    {
+      "index": 16,
+      "id": "crosses",
+      "name": "Crosses",
+      "row": 3,
+      "column": 2,
+      "file": "crosses.svg"
+    },
+    {
+      "index": 17,
+      "id": "spirals",
+      "name": "Spirals",
+      "row": 3,
+      "column": 3,
+      "file": "spirals.svg"
+    },
+    {
+      "index": 18,
+      "id": "zigzags",
+      "name": "Zigzags",
+      "row": 3,
+      "column": 4,
+      "file": "zigzags.svg"
+    },
+    {
+      "index": 19,
+      "id": "halflets-top",
+      "name": "Halflets (top)",
+      "row": 3,
+      "column": 5,
+      "file": "halflets-top.svg"
+    },
+    {
+      "index": 20,
+      "id": "halflets-bottom",
+      "name": "Halflets (bottom)",
+      "row": 3,
+      "column": 6,
+      "file": "halflets-bottom.svg"
+    },
+    {
+      "index": 21,
+      "id": "square-dots",
+      "name": "Square dots",
+      "row": 3,
+      "column": 7,
+      "file": "square-dots.svg"
+    },
+    {
+      "index": 22,
+      "id": "dot-line-horizontal",
+      "name": "Dot line (horizontal)",
+      "row": 4,
+      "column": 1,
+      "file": "dot-line-horizontal.svg"
+    },
+    {
+      "index": 23,
+      "id": "dot-line-vertical",
+      "name": "Dot line (vertical)",
+      "row": 4,
+      "column": 2,
+      "file": "dot-line-vertical.svg"
+    },
+    {
+      "index": 24,
+      "id": "one-eye-large-one-small",
+      "name": "One eye large / one small",
+      "row": 4,
+      "column": 3,
+      "file": "one-eye-large-one-small.svg"
+    },
+    {
+      "index": 25,
+      "id": "wink",
+      "name": "Wink (line + dot)",
+      "row": 4,
+      "column": 4,
+      "file": "wink.svg"
+    },
+    {
+      "index": 26,
+      "id": "mischief",
+      "name": "Mischief",
+      "row": 4,
+      "column": 5,
+      "file": "mischief.svg"
+    },
+    {
+      "index": 27,
+      "id": "sleepy",
+      "name": "Sleepy",
+      "row": 4,
+      "column": 6,
+      "file": "sleepy.svg"
+    },
+    {
+      "index": 28,
+      "id": "surprised",
+      "name": "Surprised",
+      "row": 4,
+      "column": 7,
+      "file": "surprised.svg"
+    },
+    {
+      "index": 29,
+      "id": "angry",
+      "name": "Angry",
+      "row": 5,
+      "column": 1,
+      "file": "angry.svg"
+    },
+    {
+      "index": 30,
+      "id": "curious",
+      "name": "Curious",
+      "row": 5,
+      "column": 2,
+      "file": "curious.svg"
+    },
+    {
+      "index": 31,
+      "id": "playful",
+      "name": "Playful",
+      "row": 5,
+      "column": 3,
+      "file": "playful.svg"
+    },
+    {
+      "index": 32,
+      "id": "determined",
+      "name": "Determined",
+      "row": 5,
+      "column": 4,
+      "file": "determined.svg"
+    },
+    {
+      "index": 33,
+      "id": "confused",
+      "name": "Confused",
+      "row": 5,
+      "column": 5,
+      "file": "confused.svg"
+    },
+    {
+      "index": 34,
+      "id": "lovestruck",
+      "name": "Lovestruck",
+      "row": 5,
+      "column": 6,
+      "file": "lovestruck.svg"
+    },
+    {
+      "index": 35,
+      "id": "excited",
+      "name": "Excited",
+      "row": 5,
+      "column": 7,
+      "file": "excited.svg"
+    }
+  ]
+}

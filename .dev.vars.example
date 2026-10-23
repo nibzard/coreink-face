@@ -1,0 +1,5 @@
+# Copy to .dev.vars and replace these placeholders with random tokens.
+API_TOKEN=replace-with-a-long-random-writer-token
+DEVICE_TOKEN=replace-with-a-different-long-random-reader-token
+# Optional: auto mode uses Jev when this key is present.
+# TYPESAFE_API_KEY=your-typesafe-key
