@@ -97,5 +97,25 @@ try {
   const cleared = await (await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'hearts' }, message: '' } })).json();
   assert.equal(cleared.message, '');
   assert.equal((await (await call('/v1/devices/room/face')).json()).message, '');
+  // FIFO queue persists while offline, advances only after a matching render ACK.
+  const queuePath='/v1/devices/queued/messages',displayPath='/v1/devices/queued/display';
+  const queuedA=await call(queuePath,{method:'POST',body:{face:'hearts',message:'Queue first'}});
+  const queuedB=await call(queuePath,{method:'POST',body:{face:'stars',message:'Queue second'}});
+  assert.equal(queuedA.status,202);assert.equal(queuedB.status,202);
+  assert.ok((await queuedB.json()).id>(await queuedA.json()).id);
+  assert.equal((await call(queuePath,{method:'POST',token:'runtime-test-reader',body:{message:'no'}})).status,401);
+  const firstDelivery=await call(displayPath,{token:'runtime-test-reader'}),deliveryA=await firstDelivery.json();
+  assert.equal(deliveryA.message,'Queue first');assert.equal(deliveryA.requiresAck,true);
+  assert.equal((await call(displayPath,{token:'runtime-test-reader',headers:{'If-None-Match':firstDelivery.headers.get('ETag')}})).status,304);
+  await stop();await start();
+  assert.equal((await(await call(displayPath,{token:'runtime-test-reader'})).json()).message,'Queue first');
+  const ackPath=displayPath+'/ack';
+  assert.equal((await call(ackPath,{method:'POST',token:'bad',body:{revision:deliveryA.revision}})).status,401);
+  assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryA.revision+100}})).status,409);
+  for(let i=0;i<2;i++)assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryA.revision}})).status,204);
+  const deliveryB=await(await call(displayPath,{token:'runtime-test-reader'})).json();assert.equal(deliveryB.message,'Queue second');assert.equal(deliveryB.requiresAck,true);
+  assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryA.revision}})).status,409);
+  assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryB.revision}})).status,204);
+  assert.equal((await(await call(displayPath,{token:'runtime-test-reader'})).json()).requiresAck,false);
   console.log('Runtime checks passed: authentication, validation, catalog, device isolation, ETags, SQLite restart persistence, delayed face updates.');
 } finally { await stop(); await rm(temp, { recursive: true, force: true }); }

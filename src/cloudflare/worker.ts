@@ -33,32 +33,41 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
   if (path === '/llms.txt' && request.method === 'GET') return new Response(agentGuide, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   if (path === '/health' && request.method === 'GET') return json({ status: 'ok', service: 'coreink-face-api', version: 1 });
   if (path === '/' && request.method === 'GET') return json({
-    service: 'coreink-face-api', openapi: '/openapi.json', agents: '/llms.txt', endpoints: ['POST /v1/render', 'PUT /v1/devices/:id/display', 'GET /v1/devices/:id/display', 'GET /health', 'GET /v1/faces', 'POST /v1/decide', 'PUT /v1/devices/:id/state', 'GET /v1/devices/:id/face'],
+    service: 'coreink-face-api', openapi: '/openapi.json', agents: '/llms.txt', endpoints: ['POST /v1/devices/:id/messages', 'POST /v1/devices/:id/display/ack', 'POST /v1/render', 'PUT /v1/devices/:id/display', 'GET /v1/devices/:id/display', 'GET /health', 'GET /v1/faces', 'POST /v1/decide', 'PUT /v1/devices/:id/state', 'GET /v1/devices/:id/face'],
   });
-  const device = path.match(/^\/v1\/devices\/([a-zA-Z0-9_-]{1,64})\/(state|face|display)$/);
+  const device = path.match(/^\/v1\/devices\/([a-zA-Z0-9_-]{1,64})\/(state|face|display|messages|display\/ack)$/);
+  const isAck = request.method === 'POST' && device?.[2] === 'display/ack';
+  const isEnqueue = request.method === 'POST' && device?.[2] === 'messages';
   const isRead = request.method === 'GET' && (path === '/v1/faces' || (device?.[2] === 'face' || device?.[2] === 'display'));
-  const isWrite = ((path === '/v1/decide' || path === '/v1/render') && request.method === 'POST') || ((device?.[2] === 'state' || device?.[2] === 'display') && request.method === 'PUT');
-  if (!isRead && !isWrite) {
-    const allowed = path === '/v1/faces' ? 'GET' : ['/v1/render', '/v1/decide'].includes(path) ? 'POST' : device ? device[2] === 'display' ? 'GET, PUT' : device[2] === 'state' ? 'PUT' : 'GET' : null;
+  const isWrite = isEnqueue || ((path === '/v1/decide' || path === '/v1/render') && request.method === 'POST') || ((device?.[2] === 'state' || device?.[2] === 'display') && request.method === 'PUT');
+  if (!isRead && !isWrite && !isAck) {
+    const allowed = path === '/v1/faces' ? 'GET' : ['/v1/render', '/v1/decide'].includes(path) ? 'POST' : device ? device[2] === 'messages' || device[2] === 'display/ack' ? 'POST' : device[2] === 'display' ? 'GET, PUT' : device[2] === 'state' ? 'PUT' : 'GET' : null;
     return allowed ? json({ error: 'method_not_allowed' }, 405, { Allow: allowed }) : json({ error: 'not_found' }, 404);
   }
   const isAdmin = await authorized(request, env.API_TOKEN);
-  if (!isAdmin && !(isRead && await authorized(request, env.DEVICE_TOKEN))) return json({ error: 'unauthorized', message: 'Send Authorization: Bearer <token>. Writes require the writer token.' }, 401);
+  if (!isAdmin && !((isRead || isAck) && await authorized(request, env.DEVICE_TOKEN))) return json({ error: 'unauthorized', message: 'Send Authorization: Bearer <token>. Writes require the writer token.' }, 401);
   if (path === '/v1/faces') return json({ faces });
   if (isRead && device) {
-    const snapshot = await env.DEVICES.getByName(device[1]!).read();
+    const stub = env.DEVICES.getByName(device[1]!);
+    const snapshot = !isAdmin && device[2] === 'display' ? await stub.readForDevice() : await stub.read();
     if (!snapshot) return json({ error: 'device_not_initialized', message: 'Publish a display with PUT before polling this device.' }, 404);
     const etag = `"display-v2-${snapshot.revision}"`;
     const unchanged = request.headers.get('If-None-Match')?.split(',').some(value =>
       value.trim() === '*' || value.trim().replace(/^W\//, '') === etag);
     if (unchanged) return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'no-store' } });
-    return json(device[2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds } : snapshot, 200, { ETag: etag });
+    return json(device[2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds, requiresAck: snapshot.requiresAck } : snapshot, 200, { ETag: etag });
   }
   if (!request.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase().match(/^application\/json$/)) return json({ error: 'expected_application_json' }, 415);
   let raw: unknown;
   try { raw = await readJson(request.body, 16 * 1024); }
   catch (error) {
     return json({ error: error instanceof BodyTooLarge ? 'body_too_large' : 'invalid_json' }, error instanceof BodyTooLarge ? 413 : 400);
+  }
+  if (isAck) {
+    if (!raw || typeof raw !== 'object' || Object.keys(raw).length !== 1 || !('revision' in raw) || !Number.isSafeInteger(raw.revision) || Number(raw.revision) < 0)
+      return json({error:'invalid_acknowledgement'},400);
+    const ok = await env.DEVICES.getByName(device![1]!).acknowledge(Number(raw.revision));
+    return ok ? new Response(null,{status:204,headers:{'Cache-Control':'no-store'}}) : json({error:'stale_revision'},409);
   }
   let input;
   try { input = parseInput(raw); }
@@ -70,13 +79,17 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
 
   if (input.face === undefined && !['auto', 'rules', 'jev'].includes(env.FACE_PROVIDER)) return json({ error: 'invalid_provider_configuration', retryable: false }, 503);
   if (input.face === undefined && env.FACE_PROVIDER === 'jev' && !env.TYPESAFE_API_KEY) return json({ error: 'provider_not_configured', retryable: false }, 503);
+  if (isEnqueue) {
+    const queued = await env.DEVICES.getByName(device![1]!).enqueue(input);
+    return queued ? json({queued:true,id:queued.id},202) : json({error:'inbox_full',message:'The inbox is full. Please try again later.',retryable:true},503);
+  }
   if (path === '/v1/decide' || path === '/v1/render') {
     const frame = await renderer(input.face === undefined ? env : { ...env, FACE_PROVIDER: 'rules' }).render(input);
     return json(path === '/v1/render' ? frame : { ...toDecision(frame), message: frame.message });
   }
   const snapshot = await env.DEVICES.getByName(device![1]!).update(input);
   if (!snapshot) return json({ error: 'superseded', message: 'A newer state update took precedence.' }, 409);
-  return json(device![2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds } : snapshot, 200, { ETag: `"display-v2-${snapshot.revision}"` });
+  return json(device![2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds, requiresAck: snapshot.requiresAck } : snapshot, 200, { ETag: `"display-v2-${snapshot.revision}"` });
 }
 export default {
   async fetch(request, env) {

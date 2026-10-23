@@ -7,5 +7,6 @@ void disconnect_wifi();
 bool sync_clock();
 // A result is an HTTP status, or -1 for transport/bounds/validation failure.
 struct PollResult { int status = -1; uint32_t retry_after = 0; ink::Snapshot snapshot{}; };
+bool acknowledge(const ink::Config& config, uint64_t revision);
 PollResult poll(const ink::Config& config, const ink::State& state);
 }

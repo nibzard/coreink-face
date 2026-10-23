@@ -105,6 +105,9 @@ bool parse_snapshot(const char* body, size_t length, const char* etag, Snapshot&
         string(root, "message", next.content.message, sizeof(next.content.message)) && valid_message(next.content.message) &&
         number(root, "revision", 0, 9007199254740991.0, revision) &&
         number(root, "nextPollSeconds", 1, 86400, poll);
+    const auto ack=cJSON_GetObjectItemCaseSensitive(root,"requiresAck");
+    if(ack && !cJSON_IsBool(ack)) ok=false;
+    next.requires_ack=cJSON_IsTrue(ack);
     next.revision = static_cast<uint64_t>(revision);
     next.poll_seconds = std::clamp(static_cast<uint32_t>(poll), kMinPollSeconds, kMaxPollSeconds);
     // ETags are opaque, but must fit one safe HTTP header value. An absent ETag

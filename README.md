@@ -1,16 +1,51 @@
 # CoreInk Face
 
-Turn application state into a face and a short message. Use it locally as a TypeScript library, or publish displays through the Cloudflare API.
+An expressive little e-paper companion. Send a message, choose a face, and let it sit on your desk.
 
 [![CI](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml/badge.svg)](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml)
+[![Firmware](https://github.com/nibzard/coreink-face/actions/workflows/firmware.yml/badge.svg)](https://github.com/nibzard/coreink-face/actions/workflows/firmware.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-- **Works without AI:** choose a face explicitly or supply your own rules.
-- **Optional inference:** plug in Jev or any implementation of `FaceChooser`.
-- **One display format:** local rendering and the HTTP client return `face`, `message`, and selection metadata.
-- **Portable:** zero runtime dependencies, ESM, TypeScript declarations, Web API-based transports.
-- **35 included faces:** [view the atlas](assets/faces/face-map.svg), or supply your own catalog.
+<p align="center">
+  <img src="docs/images/pebble.jpeg" width="420" alt="Pebble running on an M5Stack CoreInk, showing a heart-eyed face and the message Hello, Pebble!" />
+</p>
 
-## Install
+CoreInk Face connects a TypeScript library, a Cloudflare API, and firmware for the **M5Stack CoreInk**: a 200 × 200 monochrome e-paper display with a built-in battery. Pick from 35 expressions, write your own selection rules, or let Jev choose an expression from a message or application state. The library also works independently of the hardware.
+
+**[Send a message to Pebble →](https://pebble-little-moments.niko370669.chatgpt.site)** · [Browse all 35 faces](assets/faces/face-map.svg) · [Firmware setup](firmware/README.md)
+
+The public inbox sends to Nikola’s device. Everyone shares one send per minute; each message replaces the current display. The device checks about once a minute and keeps its last screen when offline. A successful send confirms that the API saved the message.
+
+## Start here
+
+| I want to… | Start with |
+| --- | --- |
+| Try it without setting anything up | [Public Pebble inbox](https://pebble-little-moments.niko370669.chatgpt.site) |
+| Put it on my own CoreInk | [Device setup](#set-up-a-coreink) |
+| Use faces in an app or agent | [TypeScript library](#use-the-typescript-library) |
+| Publish updates from my application | [API client](#publish-to-a-device) |
+| Host my own backend | [API deployment](#run-your-own-api) |
+
+## How it works
+
+Your application sends a face, message, or state to the API. The API stores the current display; the CoreInk wakes, fetches it, redraws only when the pixels change, and returns to sleep. Face artwork and fonts live on the device, so it can retain its display through network outages.
+
+- **Choose how expressions work.** An explicit face needs no AI. Rules and custom `FaceChooser` implementations use the same contract; Jev is optional.
+- **Keep the words you wrote.** Classification selects an expression without rewriting the message. The device wraps text onto two lines, with a matching preview in the public inbox.
+- **Build beyond the device.** The library has zero runtime dependencies and ships ESM, TypeScript declarations, SVG artwork, and an HTTP client.
+
+## Set up a CoreInk
+
+1. [Run your own API](#run-your-own-api) and create separate writer and reader tokens.
+2. [Build and flash the firmware](firmware/README.md#build-and-flash) with ESP-IDF.
+3. [Provision over USB](firmware/README.md#usb-setup) with your Wi-Fi settings, API origin, device ID, and reader token.
+4. [Publish a display](firmware/README.md#publish-a-display), then let the device poll for updates.
+
+The firmware includes conditional polling, an offline display cache, retry backoff, button controls, and deep sleep. Updates currently use USB. See the [hardware acceptance results](firmware/README.md#hardware-acceptance) and [delivery benchmarks](firmware/benchmarks/README.md) for what has been tested; battery endurance and sleep current still need measurement.
+
+## Use the TypeScript library
+
+### Install
 
 The package is not yet published on npm. Build an installable tarball from the public repository (Node.js 24 recommended):
 
@@ -27,9 +62,16 @@ Then install it in your application:
 npm install /path/to/coreink-face/coreink-face-0.2.0.tgz
 ```
 
-The tarball is self-contained: consumers need no build tools, runtime dependencies, or Cloudflare credentials. Node.js 22.12+ is supported. In npm installations that permit Git dependencies, `npm install github:nibzard/coreink-face` is another option; the Git `prepare` script builds it. Pin `#<commit-sha>` for reproducibility. The tarball route also works when npm's Git dependency policy is disabled.
+The tarball is self-contained: consumers need no build tools, runtime dependencies, or Cloudflare credentials. Node.js 22.12+ is supported.
 
-## Render a face
+<details>
+<summary>Install directly from GitHub</summary>
+
+If your npm policy permits Git dependencies, use `npm install github:nibzard/coreink-face`. The Git `prepare` script builds the package. Pin `#<commit-sha>` for reproducibility.
+
+</details>
+
+### Pick a face
 
 ```ts
 import { createFace } from 'coreink-face';
@@ -43,9 +85,9 @@ const frame = await companion.render({
 // Draw frame.face, then frame.message below it.
 ```
 
-`render` produces display **data**; it does not draw pixels or flash firmware. An explicit `face` skips classification. With no chooser configured, state-only or message-only input uses the neutral `small-dots` face. The library never discovers API keys or selects a paid service implicitly.
+`render` returns display data for your application to draw. An explicit `face` skips classification. With no chooser configured, state-only or message-only input uses the neutral `small-dots` face.
 
-## Choose from state
+### Choose from state
 
 ```ts
 import { createFace, createRuleChooser } from 'coreink-face';
@@ -63,7 +105,9 @@ const frame = await companion.render({
 });
 ```
 
-For Jev, replace the chooser:
+### Let Jev choose
+
+Replace the rule chooser with the Jev adapter:
 
 ```ts
 import { createFace } from 'coreink-face';
@@ -75,9 +119,9 @@ const companion = createFace({
 const frame = await companion.render({ message: 'A rainy evening, a good book, and nowhere to be.' });
 ```
 
-Keep provider keys on your server. Text is displayed exactly as submitted; the classifier chooses an expression and does not rewrite it. A room companion, fictional pet, and coding agent all use the same state contract. Work execution belongs to the application supplying that state.
+Keep provider keys on your server. The classifier chooses an expression and preserves the submitted message. See the [examples](examples) for room, pet, and coding-agent inputs.
 
-## Use the hosted API
+## Publish to a device
 
 ```ts
 import { createClient } from 'coreink-face/client';
@@ -157,10 +201,10 @@ Private endpoints fail closed until tokens exist. Add `TYPESAFE_API_KEY` with `w
 
 This template uses deployment-wide tokens: a reader can read every device in that deployment. Add per-device credentials, tenant authorization, and workload-appropriate rate limits before operating a multi-user service. Browser CORS is disabled by default. Never embed a writer token in a public browser application.
 
-## Further reading
+## Documentation
 
 - [CoreInk firmware](firmware/README.md): ESP-IDF build, USB provisioning, e-paper display, offline cache, and battery operation.
-- [Public Pebble inbox](https://pebble-little-moments.niko370669.chatgpt.site): send a message to the connected device; [Worker source](web/pebble/README.md).
+- [Public inbox source](web/pebble/README.md): Worker composer, shared cooldown, and device preview.
 - [Library reference](docs/library.md): custom catalogs, providers, hold timing, errors, cancellation, assets.
 - [HTTP reference](docs/api.md): authentication, endpoints, polling, concurrency, compatibility.
 - [Migration from 0.1](docs/migration.md).

@@ -2,6 +2,7 @@
 #include "render.hpp"
 #include "cache.hpp"
 #include "http_body.hpp"
+#include "history.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -40,6 +41,16 @@ struct Stream {
     }
 };
 int main() {
+    ink::History history{};ink::Snapshot entry{};
+    CHECK(!ink::navigate(history,-1));
+    for(unsigned i=1;i<=70;i++){entry.revision=i;std::snprintf(entry.content.message,sizeof(entry.content.message),"message %u",i);ink::remember(history,entry);}
+    CHECK(history.count==64 && history.selected==63);
+    CHECK(history.entries[0].revision==7 && history.entries[63].revision==70);
+    ink::remember(history,entry);CHECK(history.count==64);
+    CHECK(ink::navigate(history,-1));CHECK(history.selected==62);
+    CHECK(ink::navigate(history,-100));CHECK(history.selected==0);
+    CHECK(!ink::navigate(history,-1));CHECK(ink::navigate(history,100));CHECK(history.selected==63);
+
     char body[8192]; size_t body_length = 0;
     Stream stream{json()};
     // Header parsing may already mark the transport complete while the body

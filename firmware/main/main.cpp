@@ -1,5 +1,6 @@
 #include "coreink.hpp"
 #include "render.hpp"
+#include "history.hpp"
 #include "network.hpp"
 #include "storage.hpp"
 #include "display.hpp"
@@ -20,6 +21,10 @@
 namespace {
 ink::Config config;
 ink::State state;
+ink::History history;
+bool browsing=false, view_dirty=false;
+int browse_delta=0;
+int64_t cycle_start_ms=0;
 ink::Framebuffer pending_frame{}, shown_frame{};
 device::CoreInkDisplay display;
 bool configured = false;
@@ -33,6 +38,8 @@ int last_status = 0;
 int64_t last_refresh_ms = 0;
 RTC_DATA_ATTR uint32_t prior_sleep_seconds = 0;
 constexpr gpio_num_t kButton = GPIO_NUM_38; // CoreInk dial middle; RTC wake capable
+constexpr gpio_num_t kWheelUp=GPIO_NUM_37;
+constexpr gpio_num_t kWheelDown=GPIO_NUM_39;
 constexpr gpio_num_t kPowerHold = GPIO_NUM_12;
 constexpr gpio_num_t kStatusLed = GPIO_NUM_10; // active-low CoreInk indicator
 int64_t now_ms() { return esp_timer_get_time() / 1000; }
@@ -87,6 +94,11 @@ void command(char* line) {
         fault_expires_ms = fault_wifi || fault_api ? now_ms() + 300000 : 0;
         request_poll = true;
         serial_reply(fault_wifi ? "INK FAULT wifi" : fault_api ? "INK FAULT api" : "INK FAULT off");
+    } else if (!std::strcmp(line,"history up") || !std::strcmp(line,"history down")) {
+        browse_delta += !std::strcmp(line,"history up") ? -1 : 1;
+        serial_reply("INK OK history");
+    } else if (!std::strcmp(line,"history live")) {
+        browsing=false;view_dirty=false;request_poll=true;serial_reply("INK OK history");
     } else if (!std::strcmp(line, "reboot")) {
         serial_reply("INK OK reboot"); reboot();
     } else serial_reply("INK ERROR unknown_command");
@@ -115,9 +127,16 @@ void service() {
     if (!pressed && was_pressed) {
         int64_t duration = now_ms() - pressed_at;
         if (duration >= 1000) request_status = true;
-        else if (duration >= 40) request_poll = true;
+        else if (duration >= 40) { browsing=false;view_dirty=false;request_poll=true; }
     }
     was_pressed = pressed;
+    static bool up=false,down=false;
+    static int64_t wheel_at=0;
+    bool new_up=gpio_get_level(kWheelUp)==0,new_down=gpio_get_level(kWheelDown)==0;
+    if(now_ms()-wheel_at>=80 && ((new_up&&!up)||(new_down&&!down))) {
+        browse_delta += new_up ? -1 : 1;wheel_at=now_ms();
+    }
+    up=new_up;down=new_down;
 }
 void wait_until(int64_t deadline) {
     while (now_ms() < deadline) { service(); vTaskDelay(pdMS_TO_TICKS(20)); }
@@ -146,13 +165,14 @@ bool checkpoint() {
     return true;
 }
 void flush_display() {
-    if (local_screen || !ink::pending(state)) return;
+    if (browsing || local_screen || !ink::pending(state)) return;
     // Compare actual pixels so unsupported glyphs, cropped text, and unknown
     // face IDs do not cause needless physical refreshes.
     ink::render_into(state.latest.content, pending_frame);
     if (state.has_shown) ink::render_into(state.shown, shown_frame);
     if (state.has_shown && shown_frame == pending_frame) {
         ink::displayed(state);
+        ink::remember(history,state.latest);device::save_history(config,history);checkpoint();
         return;
     }
     wait_until(now_ms() + ink::refresh_wait(now_ms(), last_refresh_ms));
@@ -160,7 +180,7 @@ void flush_display() {
     // a refresh must force recovery on the next boot, even after an HTTP 304.
     state.has_shown = false;
     if (!checkpoint()) return;
-    if (paint(state.latest.content)) { ink::displayed(state); checkpoint(); }
+    if (paint(state.latest.content)) { ink::displayed(state); checkpoint(); ink::remember(history,state.latest);device::save_history(config,history); }
     else serial_reply("INK ERROR display_busy");
 }
 void show_local(const char* message) {
@@ -190,22 +210,17 @@ void show_status() {
 }
 void sleep_for(uint32_t seconds) {
     device::retain_cache(config, state);
-    // ESP32 deep sleep retains RTC state on both USB and battery. Avoid RTC
-    // power-off sleep, whose behavior differs when CoreInk is USB powered.
-    // The middle dial button is GPIO38 and uses its board's external pull-up.
-    if (gpio_get_level(kButton) == 0) return; // never enter an immediate wake loop
+    // GPIO low-level wake lets either direction of the wheel wake the ESP32.
+    // Light sleep retains the browsing list in RAM and avoids a custom ULP program.
+    if(gpio_get_level(kButton)==0 || gpio_get_level(kWheelUp)==0 || gpio_get_level(kWheelDown)==0) return;
     char metric[100];
-    std::snprintf(metric, sizeof(metric), "INK METRIC awake_ms=%lld sleep_s=%lu battery_mv=%ld", static_cast<long long>(now_ms()), static_cast<unsigned long>(seconds), static_cast<long>(M5.Power.getBatteryVoltage()));
-    serial_reply(metric);
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
-    ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(kButton, 0));
-    // Keep the board's supply latch high while the ESP32 digital domain sleeps.
-    // Without pad hold, battery operation can power off instead of timer-wake.
-    ESP_ERROR_CHECK(gpio_hold_en(kPowerHold));
-    ESP_ERROR_CHECK(gpio_hold_en(kStatusLed));
-    gpio_deep_sleep_hold_en();
-    prior_sleep_seconds = seconds;
-    M5.Power.deepSleep(static_cast<uint64_t>(seconds) * 1000000, false);
+    std::snprintf(metric,sizeof(metric),"INK METRIC awake_ms=%lld sleep_s=%lu battery_mv=%ld",static_cast<long long>(now_ms()-cycle_start_ms),static_cast<unsigned long>(seconds),static_cast<long>(M5.Power.getBatteryVoltage()));
+    serial_reply(metric);uart_wait_tx_done(UART_NUM_0,pdMS_TO_TICKS(200));
+    ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds)*1000000));
+    ESP_ERROR_CHECK(esp_sleep_enable_gpio_wakeup());
+    ESP_ERROR_CHECK(esp_light_sleep_start());
+    cycle_start_ms=now_ms();
+
 }
 }
 
@@ -238,6 +253,12 @@ extern "C" void app_main() {
     // servicing buttons. GPIO38 has an external pull-up on CoreInk.
     ESP_ERROR_CHECK(rtc_gpio_deinit(kButton));
     ESP_ERROR_CHECK(gpio_set_direction(kButton, GPIO_MODE_INPUT));
+    for(auto pin:{kWheelUp,kWheelDown}) {
+        ESP_ERROR_CHECK(rtc_gpio_deinit(pin));
+        ESP_ERROR_CHECK(gpio_set_direction(pin,GPIO_MODE_INPUT));
+        ESP_ERROR_CHECK(gpio_wakeup_enable(pin,GPIO_INTR_LOW_LEVEL));
+    }
+    ESP_ERROR_CHECK(gpio_wakeup_enable(kButton,GPIO_INTR_LOW_LEVEL));
     M5.Display.setAutoDisplay(false);
     M5.Display.setEpdMode(epd_mode_t::epd_quality);
     last_refresh_ms = ink::refresh_reference(now_ms(), esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER, prior_sleep_seconds);
@@ -254,7 +275,10 @@ extern "C" void app_main() {
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 4096, 0, 0, nullptr, 0));
     device::storage_init();
     configured = device::load_config(config);
-    if (configured) device::load_cache(config, state);
+    if (configured) {
+        device::load_cache(config,state);device::load_history(config,history);
+        browsing=history.count && history.selected+1<history.count;
+    }
     serial_reply("INK READY 1");
     serial_reply("INK DISPLAY init auto_refresh=0");
     char panel_info[100];
@@ -279,14 +303,32 @@ extern "C" void app_main() {
             fault_wifi = false; fault_api = false; fault_expires_ms = 0;
             request_poll = true; serial_reply("INK FAULT expired");
         }
+        if(browse_delta) {
+            if(ink::navigate(history,browse_delta)) {
+                browsing=history.selected+1<history.count;view_dirty=true;
+                char info[80];std::snprintf(info,sizeof(info),"INK HISTORY index=%lu total=%lu",static_cast<unsigned long>(history.selected+1),static_cast<unsigned long>(history.count));serial_reply(info);
+            }
+            browse_delta=0;
+        }
+        if(view_dirty && ink::refresh_wait(now_ms(),last_refresh_ms)==0) {
+            const auto content=history.entries[history.selected].content;
+            state.has_shown=false;checkpoint();
+            if(paint(content)) { state.shown=content;state.has_shown=true;checkpoint();device::save_history(config,history); }
+            view_dirty=false;
+        }
+        if(view_dirty) { sleep_for(std::max<uint32_t>(1,(ink::refresh_wait(now_ms(),last_refresh_ms)+999)/1000));continue; }
         if (request_status) show_status();
-        if (request_poll || now_ms() >= next_poll) {
+        if (!browsing && (request_poll || now_ms() >= next_poll)) {
             request_poll = false;
             local_screen = false;
             const auto poll_start = now_ms();
             device::PollResult result;
             bool connected = !fault_wifi && device::connect_wifi(config);
             if (connected && device::sync_clock()) {
+                if(!fault_api && state.has_latest && state.latest.requires_ack && state.has_shown && ink::equal(state.shown,state.latest.content)) {
+                    if(device::acknowledge(config,state.latest.revision)) serial_reply("INK ACK complete");
+                    else serial_reply("INK WARNING ack_retry");
+                }
                 if (fault_api) {
                     auto unreachable = config;
                     // Exercise a real failed TLS/TCP request without changing
@@ -329,11 +371,11 @@ extern "C" void app_main() {
             wait_until(now_ms() + 250);
         }
         if (!config.stay_awake && !request_poll && !request_status && !local_screen) {
-            sleep_for(std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
+            sleep_for(browsing ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
         } else if (!config.stay_awake && local_screen && !request_status && !request_poll) {
             // Status/errors also sleep; comparing shown with latest restores
             // server content even after a conditional HTTP 304.
-            sleep_for(std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
+            sleep_for(browsing ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

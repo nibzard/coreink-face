@@ -86,6 +86,24 @@ bool sync_clock() {
     esp_netif_sntp_deinit();
     return ok && std::time(nullptr) >= 1735689600;
 }
+bool acknowledge(const ink::Config& c,uint64_t revision) {
+    char url[400],body[64],auth[sizeof(c.token)+8];
+    std::snprintf(url,sizeof(url),"%s/v1/devices/%s/display/ack",c.base_url,c.device_id);
+    std::snprintf(body,sizeof(body),"{\"revision\":%llu}",static_cast<unsigned long long>(revision));
+    std::snprintf(auth,sizeof(auth),"Bearer %s",c.token);
+    esp_http_client_config_t options{};options.url=url;options.method=HTTP_METHOD_POST;
+    options.timeout_ms=12000;options.crt_bundle_attach=esp_crt_bundle_attach;options.disable_auto_redirect=true;
+    auto client=esp_http_client_init(&options);if(!client) return false;
+    esp_http_client_set_header(client,"Authorization",auth);
+    esp_http_client_set_header(client,"Content-Type","application/json");
+    esp_http_client_set_header(client,"User-Agent","CoreInkFaces/0.2.0");
+    const int length=std::strlen(body);
+    bool ok=esp_http_client_open(client,length)==ESP_OK;
+    if(ok) ok=esp_http_client_write(client,body,length)==length;
+    if(ok) ok=esp_http_client_fetch_headers(client)>=0 && esp_http_client_get_status_code(client)==204;
+    // No response body is needed; close immediately, including for errors/redirects.
+    esp_http_client_close(client);esp_http_client_cleanup(client);std::memset(auth,0,sizeof(auth));return ok;
+}
 PollResult poll(const ink::Config& c, const ink::State& state) {
     PollResult result;
     // Response buffer is heap allocated to leave the main task's stack bounded.

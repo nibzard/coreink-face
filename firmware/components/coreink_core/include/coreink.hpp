@@ -15,6 +15,7 @@ struct Content {
 struct Snapshot {
     Content content{};
     uint64_t revision = 0;
+    bool requires_ack = false;
     uint32_t poll_seconds = 60;
     char etag[128]{};
 };
