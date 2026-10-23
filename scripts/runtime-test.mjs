@@ -33,6 +33,8 @@ const call = (path, { method = 'GET', token = 'runtime-test-writer', body, heade
 });
 try {
   await start();
+  assert.equal((await fetch(base + '/openapi.json')).status, 200);
+  assert.match(await (await fetch(base + '/llms.txt')).text(), /createFace/);
   assert.equal((await call('/v1/faces', { token: 'bad' })).status, 401);
   assert.equal((await (await call('/v1/faces')).json()).faces.length, 35);
   assert.equal((await call('/v1/devices/other/face')).status, 404);
@@ -47,6 +49,19 @@ try {
   assert.equal(onlyMessage.status, 200);
   assert.equal((await onlyMessage.json()).message, 'Hello 🌱');
   assert.equal((await call('/v1/decide', { method: 'POST', body: { message: '🌱'.repeat(120) } })).status, 200);
+  const explicit = await call('/v1/render', { method: 'POST', body: { face: 'hearts', message: 'Hello!' } });
+  assert.equal(explicit.status, 200);
+  assert.equal((await explicit.json()).selection.source, 'explicit');
+  const invalid = await call('/v1/render', { method: 'POST', body: { face: 'made-up' } });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).issues[0].path, '/face');
+  const canonical = await call('/v1/devices/canonical/display', { method: 'PUT', body: { face: 'hearts', message: 'Same contract' } });
+  assert.equal(canonical.status, 200);
+  const canonicalDisplay = await canonical.json();
+  assert.equal(canonicalDisplay.face, 'hearts');
+  assert.equal(canonicalDisplay.message, 'Same contract');
+  assert.equal((await (await call('/v1/devices/canonical/display', { token: 'runtime-test-reader' })).json()).face, 'hearts');
+  assert.equal((await (await call('/v1/devices/canonical/face')).json()).decision.face, 'hearts');
   const first = await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'curious' }, message: 'Hello 🌱' } });
   assert.equal(first.status, 200);
   assert.equal((await first.json()).decision.face, 'curious');

@@ -1,222 +1,140 @@
-# CoreInk Faces
+# CoreInk Face
 
-Give any application state a face. A small TypeScript library and Cloudflare API for e-paper companions, fictional pets, ambient displays, and agent status indicators.
-
-Submit JSON state and an optional message, choose an expression, and let a device fetch the latest face and text. The included catalog has 35 SVG faces. Replace the catalog or chooser without changing the device protocol.
+Turn application state into a face and a short message. Use it locally as a TypeScript library, or publish displays through the Cloudflare API.
 
 [![CI](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml/badge.svg)](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml)
 
-[Browse the face atlas](assets/faces/face-map.svg) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+- **Works without AI:** choose a face explicitly or supply your own rules.
+- **Optional inference:** plug in Jev or any implementation of `FaceChooser`.
+- **One display format:** local rendering and the HTTP client return `face`, `message`, and selection metadata.
+- **Portable:** zero runtime dependencies, ESM, TypeScript declarations, Web API-based transports.
+- **35 included faces:** [view the atlas](assets/faces/face-map.svg), or supply your own catalog.
 
-## Quick start
+## Install
 
-Use Node.js 24 (see `.nvmrc`) and npm.
-
-```sh
-npm ci
-cp .dev.vars.example .dev.vars
-# Replace both placeholder tokens in .dev.vars.
-npm run dev
-```
-
-In another terminal:
+The package is not yet published on npm. Install from GitHub (Git and Node.js 22.12+ are required for its build; Node.js 24 is recommended):
 
 ```sh
-node --env-file=.dev.vars examples/publish.mjs examples/pet.json pebble
+npm install github:nibzard/coreink-face
 ```
 
-The default `auto` mode uses Jev when `TYPESAFE_API_KEY` is configured, otherwise it uses rules. The `rules` provider selects the exact face ID in `state.expression`, falling back to `small-dots`. This is deliberately predictable and requires no model account. It does not infer emotions from arbitrary prose. Enable Jev for semantic selection from your JSON state.
+For reproducible installs, append `#<commit-sha>` to that URL. Git installs build the package via `prepare`. Alternatively, run `npm ci && npm pack` in a clone and install the resulting `.tgz` in your project. Installing the tarball needs no build step or Cloudflare credentials.
 
-## Use as a library
-
-```sh
-npm run build
-node examples/library.mjs
-```
+## Render a face
 
 ```ts
-import { createFaceEngine, createRuleChooser, faces } from './dist/index.js';
+import { createFace } from 'coreink-face';
 
-const companion = createFaceEngine({
-  faces,
-  fallbackFace: 'small-dots',
+const companion = createFace();
+const frame = await companion.render({
+  face: 'hearts',
+  message: 'Have a lovely day!',
+});
+
+// Draw frame.face, then frame.message below it.
+```
+
+`render` produces display **data**; it does not draw pixels or flash firmware. An explicit `face` skips classification. With no chooser configured, state-only or message-only input uses the neutral `small-dots` face. The library never discovers API keys or selects a paid service implicitly.
+
+## Choose from state
+
+```ts
+import { createFace, createRuleChooser } from 'coreink-face';
+
+const companion = createFace({
   chooser: createRuleChooser([
     { when: state => state.event === 'found-treasure', face: 'stars' },
     { when: state => state.quietHours === true, face: 'sleepy' },
   ], 'small-dots'),
 });
 
-const result = await companion.decide({ event: 'found-treasure' });
-// result.face === 'stars'
+const frame = await companion.render({
+  state: { event: 'found-treasure' },
+  message: 'Look what I found.',
+});
 ```
 
-Pass a previous `{ face, changedAt }` to apply the minimum hold. The library is stateless: the caller owns persistence and timers. The Cloudflare adapter handles both for you. The package exports ESM and TypeScript declarations; it is private by default to prevent accidental npm publication. No Cloudflare types or services are needed by the library.
-
-A custom chooser implements one port:
+For Jev, replace the chooser:
 
 ```ts
-const chooser = {
-  name: 'my-app',
-  async choose(state, catalog) {
-    return { face: 'curious' }; // Optional confidence: number from 0 to 1
-  },
-};
+import { createFace } from 'coreink-face';
+import { createJevChooser } from 'coreink-face/jev';
+
+const companion = createFace({
+  chooser: createJevChooser({ apiKey: process.env.TYPESAFE_API_KEY! }),
+});
+const frame = await companion.render({ message: 'A rainy evening, a good book, and nowhere to be.' });
 ```
 
-A custom catalog is an array of `{ id, name, description }`. All decisions are checked against its IDs. Give expressions distinct descriptions. Configure the deployed catalog and chooser in `src/cloudflare/config.ts`; examples never become core domain rules.
+Keep provider keys on your server. Text is displayed exactly as submitted; the classifier chooses an expression and does not rewrite it. A room companion, fictional pet, and coding agent all use the same state contract. Work execution belongs to the application supplying that state.
 
-## Jev / TypeSafe
-
-Jev selects one catalog entry using the [typed Choice endpoint](https://docs.typesafe.ai/primitives/choice). Its adapter sends one question and reads `answers.face.choice` and `answers.face.confidence`. It has a five-second timeout and bounds provider responses to 64 KB.
-
-1. Leave `FACE_PROVIDER` as `auto`, or set it to `jev` to require model configuration. Set `rules` to explicitly disable model calls.
-2. Add `TYPESAFE_API_KEY` to `.dev.vars` for local development.
-3. For deployment, run `npx wrangler secret put TYPESAFE_API_KEY`, then `npm run deploy`.
-
-For the standalone library:
+## Use the hosted API
 
 ```ts
-const chooser = createJevChooser({ apiKey, model: 'jev-latest' });
+import { createClient } from 'coreink-face/client';
+
+const api = createClient({
+  baseUrl: 'https://your-worker.workers.dev',
+  token: process.env.FACE_API_TOKEN!,
+});
+
+const pebble = api.device('pebble');
+await pebble.update({ face: 'hearts', message: 'Hello from the cloud!' });
+
+const result = await pebble.read();
+if (result.status === 'modified') {
+  console.log(result.display.face, result.display.message);
+  // Save result.etag and pass read({ etag }) on the next poll.
+}
 ```
 
-The model is configurable through `JEV_MODEL`. Pin a model available to your account if stable behavior matters. Provider choice is server configuration, not caller input. A missing key returns 503 in Jev mode. Timeouts, invalid responses, and provider failures preserve the last face (or the neutral face for a new device), with `reason: "provider-unavailable"`. Low confidence does the same with `reason: "low-confidence"`. Neither is reported as a successful model selection. The default confidence threshold of 0.4 is a starting policy, not a calibrated guarantee.
+`api.render(input)` classifies without saving a device. `api.faces()` discovers the catalog. Writers publish state; devices use a read-only token to poll without making inference calls. The client does not automatically retry writes: after a timeout, read first, because the update may have completed.
 
-In Jev mode you can omit `expression` and submit any meaningful state. The included JSON examples have `expression` so they also work with the no-key rules provider.
+For HTTP-only integrations and agents, start with **[`/openapi.json`](https://coreink-face-api.nikola-balic.workers.dev/openapi.json)** and **[`/llms.txt`](https://coreink-face-api.nikola-balic.workers.dev/llms.txt)**. The same files are exported by the package as `coreink-face/openapi.json` and `coreink-face/llms.txt`. The linked installation requires its owner's credentials for data endpoints; deploy your own using the instructions below.
 
-## HTTP API
+## The contract
 
-| Method | Path | Access | Purpose |
-| --- | --- | --- | --- |
-| GET | `/health` | Public | Liveness |
-| GET | `/v1/faces` | Writer or reader | Catalog with descriptions |
-| POST | `/v1/decide` | Writer | Stateless classification |
-| PUT | `/v1/devices/:id/state` | Writer | Classify and persist a device's display |
-| GET | `/v1/devices/:id/face` | Writer or reader | Read the latest display; no model call |
+```ts
+{ face?: string, message?: string, state?: Record<string, Json> }
+```
 
-Use `Authorization: Bearer <API_TOKEN>` for writers and `Bearer <DEVICE_TOKEN>` for devices. Both are deployment-wide tokens: the reader can read all device IDs. This template is for a personal installation or trusted fleet. Add per-device credentials and tenant ownership checks before offering it as a multi-user service. All private routes fail closed when tokens are missing. Requests do not enable browser CORS by default.
+Provide at least one field. `face` is an exact catalog ID. `message` is up to 120 Unicode code points, with newlines allowed. Omit a message to preserve previous text; send `""` to clear it. The library preserves text when you pass `previous`; the device API stores it. State is a JSON object, limited to 32 nesting levels. The complete input is limited to 16 KB of UTF-8 JSON.
 
-Both write endpoints accept only this envelope (maximum 16 KB):
+The result contains:
 
 ```json
 {
-  "message": "Found a shiny pebble!",
-  "state": {
-    "scene": "A tiny stone creature finds a shiny pebble",
-    "expression": "stars"
+  "face": "hearts",
+  "message": "Hello!",
+  "changedAt": "2026-10-23T12:00:00.000Z",
+  "decidedAt": "2026-10-23T12:00:00.000Z",
+  "selection": {
+    "candidate": "hearts",
+    "source": "explicit",
+    "reason": "selected"
   }
 }
 ```
 
-`state`, when provided, must be a JSON object; fields within it are domain-specific. Provide `state`, `message`, or both. Device IDs contain 1–64 letters, numbers, underscores, or hyphens.
+Render `face`, not `selection.candidate`. Device displays add `revision` and `nextPollSeconds`. Confidence is optional. Selection metadata explains whether a face was held or a fallback was used.
 
-The device response:
-
-```json
-{
-  "revision": 1,
-  "message": "Found a shiny pebble!",
-  "decision": {
-    "face": "stars",
-    "candidate": "stars",
-    "source": "rules",
-    "reason": "selected",
-    "changedAt": "2026-10-23T12:00:00.000Z",
-    "decidedAt": "2026-10-23T12:00:00.000Z"
-  },
-  "nextPollSeconds": 60
-}
-```
-
-Render `decision.face`, not `candidate`. `candidate` explains what the chooser preferred while a minimum hold or confidence policy kept the existing face. Jev decisions also include `confidence`. Stateless `/v1/decide` returns the decision fields plus `message` (empty when omitted).
-
-GET returns an ETag. Send it as `If-None-Match` to receive 304 when the revision is unchanged. A new decision may increment the revision even if its visible face stays the same; firmware should skip redraws only when both the face ID and message are unchanged.
-
-Errors: 400 invalid JSON/state, 401 missing/wrong token, 404 missing route/device, 409 update superseded by a newer request, 413 oversized input, 415 wrong content type, 503 missing provider configuration. Internal errors return a correlation ID without exposing data.
-
-## Messages below the face
-
-Send a user-authored message through the same authenticated write endpoint:
-
-```http
-PUT /v1/devices/pebble/state
-Authorization: Bearer <API_TOKEN>
-Content-Type: application/json
-
-{"message":"Have a lovely day!"}
-```
-
-Or try the included example:
+## Run your own API
 
 ```sh
-node --env-file=.dev.vars examples/publish.mjs examples/message.json pebble
+git clone https://github.com/nibzard/coreink-face.git
+cd coreink-face
+nvm use
+npm ci
+cp .dev.vars.example .dev.vars
+# Replace the two placeholder tokens with independent random values.
+npm run dev
 ```
 
-The `message` field is plain text, with a maximum of 120 Unicode code points.
-Newlines are allowed; other ASCII control characters are rejected. Text is
-returned exactly as submitted: no model rewriting or HTML interpretation.
-Omitting it on a device update preserves the current message; an empty string
-clears it. An explicit message is also supplied to the chooser as `state.message`
-(overriding that field inside `state`, if present). Jev can infer a face from a
-message-only request. The rules provider still needs `state.expression` to pick
-anything other than its neutral default.
+Try `node --env-file=.dev.vars examples/publish.mjs examples/message.json pebble` in another terminal.
 
-The polling response contains top-level `message` beside `decision`. Firmware
-should draw `decision.face` in the upper portion and wrap `message` underneath.
-For a 200 × 200 screen, a starting layout is a 140 × 140 face area and a text
-area below it, using the remaining height and margins. Choose a font and wrap
-by measured pixel width; truncate excess visible text with an ellipsis. Unicode
-acceptance by the API does not guarantee glyph support in the device's font.
-
-A message update increments the revision even if the face stays unchanged. It
-is immediately available to polling clients while the face's minimum hold is
-active. Firmware still needs to enforce refresh limits for the whole screen.
-Face alarms preserve the current message. Existing devices migrate with an
-empty message, retaining their face and revision. This repository implements
-the API contract; displaying text on physical hardware requires its firmware
-to render this field.
-
-## Device behavior and concurrency
-
-Each device has its own SQLite-backed Durable Object. It stores decisions, a pending face, the display message, and sequence numbers; the other input state is passed to the provider but not persisted by this app. Application logs omit state and credentials. TypeSafe's own data handling applies when using Jev.
-
-Updates reserve a sequence before classification. A slower request cannot overwrite one that arrived later; it returns 409 instead. New updates replace any pending face. After a 15-second minimum hold, an alarm applies the latest pending candidate without another model call. A restart retains the displayed and pending faces. Failed/uncertain classification retains the displayed face and clears a pending change.
-
-The service stores the latest outcome, not an event history. PUT retries can incur another model call and revision; no arbitrary work or tool side effect is executed. Submit meaningful state changes, and poll the read endpoint freely without inference costs. For public workloads, add account-appropriate rate limits before distributing writer credentials.
-
-Firmware should store the artwork locally, poll on its own battery-aware schedule, retain its last face offline, and enforce its own display refresh limits. A server hold cannot guarantee physical screen timing across device restarts. This project supplies the API and vector assets, not flashed firmware. SVGs require rasterization for the CoreInk display.
-
-## Plug in your own work
-
-The application that performs the work publishes its state here:
-
-```text
-weather / smart home / pet simulation / agent
-                   ↓ JSON state
-             face-selection engine
-                   ↓ face ID
-                device
-```
-
-A broad starting idea is **Pebble**, a small room companion that reacts to music, changing weather, visitors, and little discoveries. Its state can be as playful as `{"event":"found-treasure"}` or as factual as a home sensor reading. A coding agent uses the same contract with fields such as `status` and `summary`.
-
-Keep task execution and permissions in the upstream application. A face is presentation, never approval to perform an action. This separation lets you add a Workflow, an existing agent, or your own service without changing this library.
-
-## Project layout
-
-```text
-src/domain/        Face catalog, state and chooser contracts
-src/application/   Selection, confidence and display-hold policy
-src/adapters/      Rule and Jev choosers
-src/cloudflare/    HTTP API, auth, durable device storage, composition
-examples/          Room companion, pet and agent state; runnable clients
-assets/faces/      Individual SVGs, sprite, manifest and clickable atlas
-```
-
-## Deploy
+To deploy, choose a unique Worker name in `wrangler.jsonc`, run `npx wrangler login`, then:
 
 ```sh
-npx wrangler login
-# Set a unique Worker name in wrangler.jsonc for your installation.
 npm run check
 npm test
 npm run test:runtime
@@ -226,10 +144,13 @@ npx wrangler secret put API_TOKEN
 npx wrangler secret put DEVICE_TOKEN
 ```
 
-Use independent random tokens. Private routes remain inaccessible until secrets exist. Wrangler also supports `deploy --secrets-file <file>` to configure both on the initial deployment; keep that file ignored and permission-restricted. Secret files are never uploaded as static assets. Durable Objects are provisioned by the migration. There are no custom domains, scheduled polls, or work executors to configure.
+Private endpoints fail closed until tokens exist. Add `TYPESAFE_API_KEY` with `wrangler secret put` to enable Jev in the server's `auto` mode. `rules` mode is keyless; `jev` mode requires a key. Explicit face requests skip Jev in every mode. Only the legacy rules adapter interprets `state.expression`; use top-level `face` in new integrations.
 
-The Workers runtime test launches local Wrangler with temporary storage and test-only tokens. It checks auth, body limits, response shapes, ETags, device isolation, restart persistence, and delayed expression changes. Unit tests exercise selection policy and the Jev HTTP contract with a mocked provider. Live Jev calls require your key and are not part of the default test suite. `examples/library.mjs` uses Jev when the environment contains `TYPESAFE_API_KEY`, otherwise rules.
+This template uses deployment-wide tokens: a reader can read every device in that deployment. Add per-device credentials, tenant authorization, and workload-appropriate rate limits before operating a multi-user service. Browser CORS is disabled by default. Never embed a writer token in a public browser application.
 
-## License
+## Further reading
 
-[MIT](LICENSE).
+- [Library reference](docs/library.md): custom catalogs, providers, hold timing, errors, cancellation, assets.
+- [HTTP reference](docs/api.md): authentication, endpoints, polling, concurrency, compatibility.
+- [Migration from 0.1](docs/migration.md).
+- [Contributing and validation](CONTRIBUTING.md), [security reporting](SECURITY.md), [MIT license](LICENSE).

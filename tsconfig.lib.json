@@ -1,8 +1,26 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": false, "declaration": true, "outDir": "dist", "rootDir": "src",
-    "types": [], "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": [],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "declarationMap": true
   },
-  "include": ["src/index.ts"], "exclude": ["test", "src/cloudflare"]
+  "include": [
+    "src/index.ts",
+    "src/client/index.ts",
+    "src/openapi.ts",
+    "src/agent-guide.ts"
+  ],
+  "exclude": [
+    "test",
+    "src/cloudflare"
+  ]
 }

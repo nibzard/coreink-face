@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+*.tgz
 worker-configuration.d.ts
 
 # Local Cloudflare runtime and credentials

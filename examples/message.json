@@ -1,6 +1,4 @@
 {
-  "message": "You found a little moment of joy.",
-  "state": {
-    "expression": "hearts"
-  }
+  "face": "hearts",
+  "message": "You found a little moment of joy."
 }

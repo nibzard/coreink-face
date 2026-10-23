@@ -1,7 +1,9 @@
+import type { RenderInput } from '../domain/input.js';
+import { toDecision } from '../domain/frame.js';
 import { applyDisplayPolicy } from '../domain/display-policy.js';
 import { DurableObject } from 'cloudflare:workers';
-import type { FaceDecision, State } from '../domain/types.js';
-import { engine, type AppEnv } from './config.js';
+import type { FaceDecision } from '../domain/types.js';
+import { renderer, type AppEnv } from './config.js';
 export interface Snapshot { revision: number; decision: FaceDecision; message: string; nextPollSeconds: number }
 type Row = { revision: number; request_seq: number; decision: string | null; pending: string | null; message: string };
 /** One coordination boundary per device. Only display decisions and the submitted display message are stored. */
@@ -26,17 +28,17 @@ export class Device extends DurableObject<AppEnv> {
     const row = this.row();
     return row.decision ? { revision: row.revision, decision: JSON.parse(row.decision), message: row.message, nextPollSeconds: 60 } : null;
   }
-  async update(state: State, message?: string): Promise<Snapshot | null> {
+  async update(input: RenderInput): Promise<Snapshot | null> {
     const seq = this.ctx.storage.sql.exec<{ request_seq: number }>(
       'UPDATE display SET request_seq = request_seq + 1 WHERE id = 1 RETURNING request_seq',
     ).one().request_seq;
-    const decision = await engine(this.env).decide(message === undefined ? state : { ...state, message });
+    const decision = toDecision(await renderer(input.face === undefined ? this.env : { ...this.env, FACE_PROVIDER: 'rules' }).render(input));
     // External classification yields: a newer request may now own this device.
     const current = this.row();
     if (current.request_seq !== seq) return null;
     // Read the display AFTER classification; an alarm may have changed it meanwhile.
     const previous = current.decision ? JSON.parse(current.decision) as FaceDecision : undefined;
-    return this.commit(applyDisplayPolicy(decision, previous, 15_000, new Date()), message);
+    return this.commit(applyDisplayPolicy(decision, previous, 15_000, new Date()), input.message);
   }
 
   private async commit(decision: FaceDecision, submittedMessage?: string): Promise<Snapshot> {

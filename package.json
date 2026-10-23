@@ -1,40 +1,64 @@
 {
-  "name": "coreink-faces",
-  "version": "0.1.0",
+  "name": "coreink-face",
+  "version": "0.2.0",
   "description": "Domain-neutral state-to-face library and Cloudflare device API",
   "scripts": {
     "dev": "wrangler dev",
     "types": "wrangler types --strict-vars=false",
     "check": "npm run types && tsc --noEmit",
-    "build": "tsc -p tsconfig.lib.json",
+    "build": "node scripts/build.mjs",
     "test": "vitest run",
     "test:runtime": "node scripts/runtime-test.mjs",
     "deploy:check": "wrangler deploy --dry-run",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:package": "node scripts/package-test.mjs",
+    "prepare": "npm run build"
   },
   "type": "module",
-  "dependencies": {
-    "zod": "^4.6.7"
-  },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "ajv": "^8.20.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5",
     "wrangler": "^4.152.0"
   },
-  "private": true,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./jev": {
+      "types": "./dist/adapters/jev-chooser.d.ts",
+      "import": "./dist/adapters/jev-chooser.js"
+    },
+    "./catalog": {
+      "types": "./dist/domain/catalog.d.ts",
+      "import": "./dist/domain/catalog.js"
+    },
+    "./assets/*": "./assets/faces/*",
+    "./openapi.json": "./dist/openapi.json",
+    "./llms.txt": "./dist/llms.txt",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "assets/faces"
+    "assets/faces/*.svg",
+    "assets/faces/manifest.json",
+    "docs",
+    "src/domain",
+    "src/application",
+    "src/adapters",
+    "src/client",
+    "src/index.ts",
+    "src/openapi.ts",
+    "src/agent-guide.ts"
   ],
   "engines": {
-    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+    "node": ">=22.12.0"
   },
   "license": "MIT",
   "repository": {
@@ -44,5 +68,8 @@
   "bugs": {
     "url": "https://github.com/nibzard/coreink-face/issues"
   },
-  "homepage": "https://github.com/nibzard/coreink-face#readme"
+  "homepage": "https://github.com/nibzard/coreink-face#readme",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js"
 }

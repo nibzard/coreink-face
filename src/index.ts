@@ -3,3 +3,7 @@ export * from './domain/catalog.js';
 export * from './application/face-engine.js';
 export * from './adapters/rule-chooser.js';
 export * from './adapters/jev-chooser.js';
+export * from './application/create-face.js';
+export * from './domain/frame.js';
+export * from './domain/input.js';
+export * from './domain/errors.js';

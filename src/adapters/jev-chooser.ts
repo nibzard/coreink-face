@@ -1,11 +1,7 @@
-import { z } from 'zod';
+import { FaceError } from '../domain/errors.js';
+import { isRecord } from '../domain/input.js';
 import type { FaceChooser } from '../domain/types.js';
 import { readJson } from './bounded-json.js';
-const answerSchema = z.object({
-  answers: z.object({ face: z.object({
-    type: z.literal('choice'), choice: z.string(), confidence: z.number().min(0).max(1),
-  }) }),
-});
 export interface JevOptions {
   apiKey: string;
   model?: string;
@@ -15,15 +11,16 @@ export interface JevOptions {
 }
 /** Uses TypeSafe's documented POST /v1/systemone Choice contract. */
 export function createJevChooser(options: JevOptions): FaceChooser {
-  if (!options.apiKey) throw new Error('TypeSafe API key is required');
+  if (!options.apiKey) throw new FaceError('invalid_configuration', 'TypeSafe API key is required.');
+  if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs <= 0)) throw new FaceError('invalid_configuration', 'timeoutMs must be a positive integer.');
   return {
     name: 'jev',
-    async choose(state, faces) {
+    async choose(state, faces, request) {
       if (faces.length > 255) throw new Error('Jev supports at most 255 choices');
       const response = await (options.fetch ?? globalThis.fetch)('https://api.typesafe.ai/v1/systemone', {
         method: 'POST',
         headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),
+        signal: AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 5_000), ...(request?.signal ? [request.signal] : [])]),
         body: JSON.stringify({
           model: options.model ?? 'jev-latest', state,
           questions: { face: {
@@ -35,10 +32,14 @@ export function createJevChooser(options: JevOptions): FaceChooser {
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new Error(`Jev request failed (${response.status})`);
+        throw new FaceError('provider_http_error', `Jev request failed (${response.status}).`, [], response.status === 429 || response.status >= 500);
       }
-      const result = answerSchema.parse(await readJson(response.body, 64 * 1024));
-      return { face: result.answers.face.choice, confidence: result.answers.face.confidence };
+      const result = await readJson(response.body, 64 * 1024);
+      const answer = isRecord(result) && isRecord(result.answers) ? result.answers.face : undefined;
+      if (!isRecord(answer) || answer.type !== 'choice' || typeof answer.choice !== 'string' || typeof answer.confidence !== 'number' || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) {
+        throw new FaceError('invalid_provider_response', 'Jev returned an invalid choice response.');
+      }
+      return { face: answer.choice, confidence: answer.confidence };
     },
   };
 }

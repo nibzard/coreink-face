@@ -5,7 +5,7 @@ export interface Selection { face: string; confidence?: number }
 /** Implement this port to integrate any classifier or your own application rules. */
 export interface FaceChooser {
   readonly name: string;
-  choose(state: State, faces: readonly Face[]): Promise<Selection>;
+  choose(state: State, faces: readonly Face[], options?: { signal?: AbortSignal }): Promise<Selection>;
 }
 export interface DisplayState {
   face: string;
