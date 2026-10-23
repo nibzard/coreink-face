@@ -39,10 +39,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nibzard/coreink.git"
+    "url": "git+https://github.com/nibzard/coreink-face.git"
   },
   "bugs": {
-    "url": "https://github.com/nibzard/coreink/issues"
+    "url": "https://github.com/nibzard/coreink-face/issues"
   },
-  "homepage": "https://github.com/nibzard/coreink#readme"
+  "homepage": "https://github.com/nibzard/coreink-face#readme"
 }

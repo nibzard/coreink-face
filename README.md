@@ -4,7 +4,7 @@ Give any application state a face. A small TypeScript library and Cloudflare API
 
 Submit JSON state, choose an expression, and let a device fetch the latest face. The included catalog has 35 SVG faces. Replace the catalog or chooser without changing the device protocol.
 
-[![CI](https://github.com/nibzard/coreink/actions/workflows/ci.yml/badge.svg)](https://github.com/nibzard/coreink/actions/workflows/ci.yml)
+[![CI](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml/badge.svg)](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml)
 
 [Browse the face atlas](assets/faces/face-map.svg) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
