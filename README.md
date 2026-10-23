@@ -12,13 +12,22 @@ Turn application state into a face and a short message. Use it locally as a Type
 
 ## Install
 
-The package is not yet published on npm. Install from GitHub (Git and Node.js 22.12+ are required for its build; Node.js 24 is recommended):
+The package is not yet published on npm. Build an installable tarball from the public repository (Node.js 24 recommended):
 
 ```sh
-npm install github:nibzard/coreink-face
+git clone https://github.com/nibzard/coreink-face.git
+cd coreink-face
+npm ci
+npm pack
 ```
 
-For reproducible installs, append `#<commit-sha>` to that URL. Git installs build the package via `prepare`. Alternatively, run `npm ci && npm pack` in a clone and install the resulting `.tgz` in your project. Installing the tarball needs no build step or Cloudflare credentials.
+Then install it in your application:
+
+```sh
+npm install /path/to/coreink-face/coreink-face-0.2.0.tgz
+```
+
+The tarball is self-contained: consumers need no build tools, runtime dependencies, or Cloudflare credentials. Node.js 22.12+ is supported. In npm installations that permit Git dependencies, `npm install github:nibzard/coreink-face` is another option; the Git `prepare` script builds it. Pin `#<commit-sha>` for reproducibility. The tarball route also works when npm's Git dependency policy is disabled.
 
 ## Render a face
 

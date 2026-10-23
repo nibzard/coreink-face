@@ -5,6 +5,13 @@ A JavaScript/TypeScript library and HTTP API for face + message display content.
 Source: https://github.com/nibzard/coreink-face
 Contract: /openapi.json (OpenAPI 3.1)
 
+## Installation
+No npm registry release exists yet. Clone https://github.com/nibzard/coreink-face,
+run npm ci and npm pack with Node.js 24, then install the resulting .tgz in the
+consumer project. The tarball has no runtime dependencies or install build.
+Git dependency installs are optional and may be blocked by npm policy; do not
+change a user's package-manager policy to install this library.
+
 ## Local use
 import { createFace } from 'coreink-face';
 const renderer = createFace();
