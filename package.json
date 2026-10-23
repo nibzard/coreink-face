@@ -7,7 +7,7 @@
     "types": "wrangler types --strict-vars=false",
     "check": "npm run types && tsc --noEmit",
     "build": "node scripts/build.mjs",
-    "test": "vitest run",
+    "test": "vitest run --dir test",
     "test:runtime": "node scripts/runtime-test.mjs",
     "deploy:check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
