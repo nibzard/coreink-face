@@ -3,7 +3,13 @@ import { faces } from '../domain/catalog.js';
 import { BodyTooLarge, readJson } from '../adapters/bounded-json.js';
 import { engine, type AppEnv } from './config.js';
 export { Device } from './device.js';
-const inputSchema = z.object({ state: z.record(z.string(), z.json()) }).strict();
+const inputSchema = z.object({
+  state: z.record(z.string(), z.json()).optional(),
+  message: z.string()
+    .refine(value => [...value].length <= 120, 'Message must be at most 120 Unicode code points')
+    .refine(value => !/[\u0000-\u0009\u000B-\u001F\u007F]/u.test(value), 'Message must be plain text without control characters')
+    .optional(),
+}).strict().refine(value => value.state !== undefined || value.message !== undefined, 'Provide state or message');
 const json = (data: unknown, status = 200, extra: HeadersInit = {}) => Response.json(data, {
   status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra },
 });
@@ -30,7 +36,7 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
   if (isRead && device) {
     const snapshot = await env.DEVICES.getByName(device[1]!).read();
     if (!snapshot) return json({ error: 'device_not_initialized' }, 404);
-    const etag = `"${snapshot.revision}"`;
+    const etag = `"display-v2-${snapshot.revision}"`;
     const unchanged = request.headers.get('If-None-Match')?.split(',').some(value =>
       value.trim() === '*' || value.trim().replace(/^W\//, '') === etag);
     if (unchanged) return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'no-store' } });
@@ -43,11 +49,16 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
     return json({ error: error instanceof BodyTooLarge ? 'body_too_large' : 'invalid_json' }, error instanceof BodyTooLarge ? 413 : 400);
   }
   const input = inputSchema.safeParse(raw);
-  if (!input.success) return json({ error: 'invalid_state', message: 'Expected { state: { ...JSON fields } } with no extra top-level fields.' }, 400);
+  if (!input.success) return json({ error: 'invalid_state', message: 'Provide state (a JSON object), message (plain text, at most 120 Unicode code points), or both. No extra top-level fields.' }, 400);
   if (!['auto', 'rules', 'jev'].includes(env.FACE_PROVIDER)) return json({ error: 'invalid_provider_configuration' }, 503);
   if (env.FACE_PROVIDER === 'jev' && !env.TYPESAFE_API_KEY) return json({ error: 'provider_not_configured' }, 503);
-  if (path === '/v1/decide') return json(await engine(env).decide(input.data.state));
-  const snapshot = await env.DEVICES.getByName(device![1]!).update(input.data.state);
+  const state = input.data.state ?? {};
+  const message = input.data.message;
+  if (path === '/v1/decide') return json({
+    ...await engine(env).decide(message === undefined ? state : { ...state, message }),
+    message: message ?? '',
+  });
+  const snapshot = await env.DEVICES.getByName(device![1]!).update(state, message);
   if (!snapshot) return json({ error: 'superseded', message: 'A newer state update took precedence.' }, 409);
   return json(snapshot);
 }

@@ -2,7 +2,7 @@
 
 Give any application state a face. A small TypeScript library and Cloudflare API for e-paper companions, fictional pets, ambient displays, and agent status indicators.
 
-Submit JSON state, choose an expression, and let a device fetch the latest face. The included catalog has 35 SVG faces. Replace the catalog or chooser without changing the device protocol.
+Submit JSON state and an optional message, choose an expression, and let a device fetch the latest face and text. The included catalog has 35 SVG faces. Replace the catalog or chooser without changing the device protocol.
 
 [![CI](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml/badge.svg)](https://github.com/nibzard/coreink-face/actions/workflows/ci.yml)
 
@@ -99,6 +99,7 @@ Both write endpoints accept only this envelope (maximum 16 KB):
 
 ```json
 {
+  "message": "Found a shiny pebble!",
   "state": {
     "scene": "A tiny stone creature finds a shiny pebble",
     "expression": "stars"
@@ -106,13 +107,14 @@ Both write endpoints accept only this envelope (maximum 16 KB):
 }
 ```
 
-`state` must be a JSON object; fields within it are domain-specific. Device IDs contain 1–64 letters, numbers, underscores, or hyphens.
+`state`, when provided, must be a JSON object; fields within it are domain-specific. Provide `state`, `message`, or both. Device IDs contain 1–64 letters, numbers, underscores, or hyphens.
 
 The device response:
 
 ```json
 {
   "revision": 1,
+  "message": "Found a shiny pebble!",
   "decision": {
     "face": "stars",
     "candidate": "stars",
@@ -125,15 +127,57 @@ The device response:
 }
 ```
 
-Render `decision.face`, not `candidate`. `candidate` explains what the chooser preferred while a minimum hold or confidence policy kept the existing face. Jev decisions also include `confidence`. Stateless `/v1/decide` returns just the decision object.
+Render `decision.face`, not `candidate`. `candidate` explains what the chooser preferred while a minimum hold or confidence policy kept the existing face. Jev decisions also include `confidence`. Stateless `/v1/decide` returns the decision fields plus `message` (empty when omitted).
 
-GET returns an ETag. Send it as `If-None-Match` to receive 304 when the revision is unchanged. A new decision may increment the revision even if its visible face stays the same; firmware should skip redraws when the face ID is unchanged.
+GET returns an ETag. Send it as `If-None-Match` to receive 304 when the revision is unchanged. A new decision may increment the revision even if its visible face stays the same; firmware should skip redraws only when both the face ID and message are unchanged.
 
 Errors: 400 invalid JSON/state, 401 missing/wrong token, 404 missing route/device, 409 update superseded by a newer request, 413 oversized input, 415 wrong content type, 503 missing provider configuration. Internal errors return a correlation ID without exposing data.
 
+## Messages below the face
+
+Send a user-authored message through the same authenticated write endpoint:
+
+```http
+PUT /v1/devices/pebble/state
+Authorization: Bearer <API_TOKEN>
+Content-Type: application/json
+
+{"message":"Have a lovely day!"}
+```
+
+Or try the included example:
+
+```sh
+node --env-file=.dev.vars examples/publish.mjs examples/message.json pebble
+```
+
+The `message` field is plain text, with a maximum of 120 Unicode code points.
+Newlines are allowed; other ASCII control characters are rejected. Text is
+returned exactly as submitted: no model rewriting or HTML interpretation.
+Omitting it on a device update preserves the current message; an empty string
+clears it. An explicit message is also supplied to the chooser as `state.message`
+(overriding that field inside `state`, if present). Jev can infer a face from a
+message-only request. The rules provider still needs `state.expression` to pick
+anything other than its neutral default.
+
+The polling response contains top-level `message` beside `decision`. Firmware
+should draw `decision.face` in the upper portion and wrap `message` underneath.
+For a 200 × 200 screen, a starting layout is a 140 × 140 face area and a text
+area below it, using the remaining height and margins. Choose a font and wrap
+by measured pixel width; truncate excess visible text with an ellipsis. Unicode
+acceptance by the API does not guarantee glyph support in the device's font.
+
+A message update increments the revision even if the face stays unchanged. It
+is immediately available to polling clients while the face's minimum hold is
+active. Firmware still needs to enforce refresh limits for the whole screen.
+Face alarms preserve the current message. Existing devices migrate with an
+empty message, retaining their face and revision. This repository implements
+the API contract; displaying text on physical hardware requires its firmware
+to render this field.
+
 ## Device behavior and concurrency
 
-Each device has its own SQLite-backed Durable Object. It stores only decisions, a pending face, and sequence numbers; input state is passed to the provider but not persisted by this app. Application logs omit state and credentials. TypeSafe's own data handling applies when using Jev.
+Each device has its own SQLite-backed Durable Object. It stores decisions, a pending face, the display message, and sequence numbers; the other input state is passed to the provider but not persisted by this app. Application logs omit state and credentials. TypeSafe's own data handling applies when using Jev.
 
 Updates reserve a sequence before classification. A slower request cannot overwrite one that arrived later; it returns 409 instead. New updates replace any pending face. After a 15-second minimum hold, an alarm applies the latest pending candidate without another model call. A restart retains the displayed and pending faces. Failed/uncertain classification retains the displayed face and clears a pending change.
 

@@ -11,14 +11,18 @@ const catalog = await (await request('/v1/faces', process.env.DEVICE_TOKEN)).jso
 assert.equal(catalog.faces.length, 35);
 assert.equal((await request('/v1/decide', process.env.DEVICE_TOKEN, 'POST', { state: {} })).status, 401);
 const response = await request('/v1/devices/pebble-demo/state', process.env.API_TOKEN, 'PUT', {
+  message: 'Found a shiny pebble!',
   state: { character: 'A small curious stone creature', event: 'Discovered a shiny pebble while exploring', expression: 'stars' },
 });
 assert.equal(response.status, 200);
 const written = await response.json();
+assert.equal(written.message, 'Found a shiny pebble!');
 assert.ok(catalog.faces.some(face => face.id === written.decision.face));
 assert.notEqual(written.decision.reason, 'provider-unavailable');
 const read = await request('/v1/devices/pebble-demo/face', process.env.DEVICE_TOKEN);
 assert.equal(read.status, 200);
-assert.equal((await read.json()).revision, written.revision);
+const stored = await read.json();
+assert.equal(stored.revision, written.revision);
+assert.equal(stored.message, written.message);
 assert.equal((await request('/v1/devices/pebble-demo/face', process.env.DEVICE_TOKEN, 'GET', undefined, { 'If-None-Match': read.headers.get('ETag') })).status, 304);
 console.log(JSON.stringify({ status: 'passed', base, checks: ['health', 'authentication', 'read-only device access', 'catalog', 'classification', 'persistence', 'ETag'], decision: written.decision }, null, 2));

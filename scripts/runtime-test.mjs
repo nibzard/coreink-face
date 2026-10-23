@@ -40,15 +40,24 @@ try {
   assert.equal((await call('/v1/decide', { method: 'POST', body: '{' })).status, 400);
   assert.equal((await call('/v1/decide', { method: 'POST', body: { state: { text: 'x'.repeat(17000) } } })).status, 413);
   assert.equal((await call('/v1/decide', { method: 'POST', token: 'runtime-test-reader', body: { state: {} } })).status, 401);
-  const first = await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'curious' } } });
+  for (const message of [123, null, 'x'.repeat(121), 'bad\u0000text']) {
+    assert.equal((await call('/v1/decide', { method: 'POST', body: { message } })).status, 400);
+  }
+  const onlyMessage = await call('/v1/decide', { method: 'POST', body: { message: 'Hello 🌱' } });
+  assert.equal(onlyMessage.status, 200);
+  assert.equal((await onlyMessage.json()).message, 'Hello 🌱');
+  assert.equal((await call('/v1/decide', { method: 'POST', body: { message: '🌱'.repeat(120) } })).status, 200);
+  const first = await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'curious' }, message: 'Hello 🌱' } });
   assert.equal(first.status, 200);
   assert.equal((await first.json()).decision.face, 'curious');
+  assert.equal((await (await call('/v1/devices/room/face')).json()).message, 'Hello 🌱');
   const read = await call('/v1/devices/room/face', { token: 'runtime-test-reader' });
   assert.equal(read.status, 200);
   assert.equal((await call('/v1/devices/room/face', { headers: { 'If-None-Match': read.headers.get('ETag') } })).status, 304);
   assert.equal((await call('/v1/devices/room/face', { headers: { 'If-None-Match': `W/${read.headers.get('ETag')}` } })).status, 304);
   assert.equal((await call('/v1/devices/room/face', { headers: { 'If-None-Match': `\"old\", W/${read.headers.get('ETag')}` } })).status, 304);
   const second = await (await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'hearts' } } })).json();
+  assert.equal(second.message, 'Hello 🌱');
   assert.equal(second.decision.reason, 'minimum-hold');
   assert.equal(second.decision.face, 'curious');
   assert.equal(second.decision.candidate, 'hearts');
@@ -57,10 +66,21 @@ try {
   assert.equal((await (await call('/v1/devices/room/face')).json()).revision, second.revision);
   for (let i = 0; i < 40; i++) {
     const result = await (await call('/v1/devices/room/face')).json();
+    assert.equal(result.message, 'Hello 🌱');
     if (result.decision.face === 'hearts') break;
     if (i === 39) throw new Error('Pending expression did not settle after hold');
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert.equal((await call('/v1/devices/other/face')).status, 404);
+  const beforeMessage = await call('/v1/devices/room/face');
+  const messageOnly = await call('/v1/devices/room/state', { method: 'PUT', body: { message: 'See you soon!' } });
+  assert.equal(messageOnly.status, 200);
+  const messageUpdate = await messageOnly.json();
+  assert.equal(messageUpdate.message, 'See you soon!');
+  assert.equal(messageUpdate.decision.face, 'hearts'); // Face is held; message updates immediately.
+  assert.equal((await call('/v1/devices/room/face', { headers: { 'If-None-Match': beforeMessage.headers.get('ETag') } })).status, 200);
+  const cleared = await (await call('/v1/devices/room/state', { method: 'PUT', body: { state: { expression: 'hearts' }, message: '' } })).json();
+  assert.equal(cleared.message, '');
+  assert.equal((await (await call('/v1/devices/room/face')).json()).message, '');
   console.log('Runtime checks passed: authentication, validation, catalog, device isolation, ETags, SQLite restart persistence, delayed face updates.');
 } finally { await stop(); await rm(temp, { recursive: true, force: true }); }
