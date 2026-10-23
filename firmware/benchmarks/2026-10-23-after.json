@@ -1,0 +1,109 @@
+{
+  "label": "after",
+  "site": "https://pebble-little-moments.niko370669.chatgpt.site",
+  "date": "2026-10-23T11:30:19Z",
+  "samples": [
+    {
+      "revision": 19,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 389,
+      "accept_to_device_poll_ms": 68407,
+      "submit_to_refresh_complete_ms": 70253,
+      "poll_ms": 8095,
+      "render_ms": 1401,
+      "awake_ms": 9911,
+      "sleep_s": 60,
+      "battery_mv": 4203,
+      "post_render_to_sleep_ms": 275
+    },
+    {
+      "revision": 20,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 484,
+      "accept_to_device_poll_ms": 69170,
+      "submit_to_refresh_complete_ms": 71112,
+      "poll_ms": 9138,
+      "render_ms": 1399,
+      "awake_ms": 10954,
+      "sleep_s": 60,
+      "battery_mv": 4203,
+      "post_render_to_sleep_ms": 275
+    },
+    {
+      "revision": 21,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 602,
+      "accept_to_device_poll_ms": 69694,
+      "submit_to_refresh_complete_ms": 71751,
+      "poll_ms": 9509,
+      "render_ms": 1400,
+      "awake_ms": 11321,
+      "sleep_s": 60,
+      "battery_mv": 4212,
+      "post_render_to_sleep_ms": 274
+    }
+  ],
+  "method": {
+    "polling": "normal timer sleep; no forced USB poll",
+    "send_phase": "immediately after observed sleep event",
+    "render_completion": "panel busy signal via firmware serial metric; not optical capture",
+    "power": "USB connected and charging",
+    "cpu_mhz": 160
+  },
+  "energy": {
+    "measured": false,
+    "reason": "USB powered; CoreInk battery ADC measures voltage, not current or charge. No current logger connected."
+  },
+  "summary": {
+    "submit_to_accept_ms": {
+      "min": 389,
+      "median": 484,
+      "max": 602
+    },
+    "submit_to_refresh_complete_ms": {
+      "min": 70253,
+      "median": 71112,
+      "max": 71751
+    },
+    "poll_ms": {
+      "min": 8095,
+      "median": 9138,
+      "max": 9509
+    },
+    "render_ms": {
+      "min": 1399,
+      "median": 1400,
+      "max": 1401
+    },
+    "awake_ms": {
+      "min": 9911,
+      "median": 10954,
+      "max": 11321
+    },
+    "post_render_to_sleep_ms": {
+      "min": 274,
+      "median": 275,
+      "max": 275
+    }
+  },
+  "idle_cycles": [
+    {
+      "awake_ms": 13716,
+      "sleep_s": 60,
+      "battery_mv": 4217
+    }
+  ],
+  "complete": true
+}

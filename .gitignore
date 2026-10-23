@@ -22,3 +22,6 @@ assets/*.zip
 .DS_Store
 .idea/
 .vscode/
+
+# Sites owns an independent source repository; the repo copy is web/pebble/.
+sites/pebble/

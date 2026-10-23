@@ -1,0 +1,75 @@
+{
+  "method": "Chrome UI -> public Worker -> canonical API -> normal timer poll -> panel busy completion",
+  "events": [
+    {
+      "time": 146775.49172775,
+      "line": "INK READY 1"
+    },
+    {
+      "time": 146775.491971791,
+      "line": "INK DISPLAY init auto_refresh=0"
+    },
+    {
+      "time": 146775.492906375,
+      "line": "INK PANEL GDEW0154M09 id=00000000"
+    },
+    {
+      "time": 146793.26318,
+      "line": "INK POLL status=304 retry=60 failures=0 heap=198680"
+    },
+    {
+      "time": 146793.266484291,
+      "line": "INK METRIC poll_ms=9732 revision=21 battery_mv=4222"
+    },
+    {
+      "time": 146793.523902,
+      "line": "INK METRIC awake_ms=18097 sleep_s=60 battery_mv=4193"
+    },
+    {
+      "time": 146855.482237791,
+      "line": "INK READY 1"
+    },
+    {
+      "time": 146855.482486291,
+      "line": "INK DISPLAY init auto_refresh=0"
+    },
+    {
+      "time": 146855.483342041,
+      "line": "INK PANEL GDEW0154M09 id=00000000"
+    },
+    {
+      "time": 146862.194457958,
+      "line": "INK POLL status=200 retry=60 failures=0 heap=198696"
+    },
+    {
+      "time": 146862.197879333,
+      "line": "INK METRIC poll_ms=6694 revision=22 battery_mv=4227"
+    },
+    {
+      "time": 146862.259967791,
+      "line": "INK DISPLAY begin"
+    },
+    {
+      "time": 146863.65966025,
+      "line": "INK DISPLAY complete"
+    },
+    {
+      "time": 146863.659940625,
+      "line": "INK METRIC render_ms=1399 revision=22"
+    },
+    {
+      "time": 146863.933824833,
+      "line": "INK METRIC awake_ms=8513 sleep_s=60 battery_mv=4203"
+    }
+  ],
+  "revision": 22,
+  "complete": true,
+  "greeting_matches_api": true,
+  "browser_submit_success": true,
+  "mobile_viewport": {
+    "width": 375,
+    "height": 667,
+    "overflow": false
+  },
+  "date": "2026-10-23"
+}

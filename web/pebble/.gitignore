@@ -1,0 +1,8 @@
+dist/
+site.tar.gz
+.env*
+.dev.vars*
+*.log
+
+node_modules/
+.local/

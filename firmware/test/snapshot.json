@@ -1,0 +1,7 @@
+{
+  "face": "stars",
+  "message": "Pronašao sam blago!\nČć Žž Šš Đđ",
+  "revision": 1,
+  "nextPollSeconds": 60,
+  "selection": { "candidate": "stars", "source": "rules", "reason": "selected" }
+}

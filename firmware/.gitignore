@@ -1,0 +1,8 @@
+.tools/
+.venv/
+build/
+build-host/
+managed_components/
+sdkconfig
+sdkconfig.old
+__pycache__/

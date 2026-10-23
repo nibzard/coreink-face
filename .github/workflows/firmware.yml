@@ -1,0 +1,42 @@
+name: Firmware
+
+on:
+  push:
+    paths: ['firmware/**', 'web/pebble/**', 'assets/faces/**', 'src/**', 'package*.json', 'wrangler.jsonc', '.github/workflows/firmware.yml']
+  pull_request:
+    paths: ['firmware/**', 'web/pebble/**', 'assets/faces/**', 'src/**', 'package*.json', 'wrangler.jsonc', '.github/workflows/firmware.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 firmware/tools/generate_assets.py --check-sources
+      - run: cmake -S firmware/test -B firmware/build-host -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build firmware/build-host --parallel 2
+      - run: ctest --test-dir firmware/build-host --output-on-failure
+      - run: python3 -m unittest discover -s firmware/test -p 'test_*.py'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: python3 firmware/test/api_integration.py
+      - run: npm --prefix web/pebble test
+  esp32:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: espressif/idf:v5.3.4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build CoreInk firmware
+        working-directory: firmware
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build

@@ -159,6 +159,8 @@ This template uses deployment-wide tokens: a reader can read every device in tha
 
 ## Further reading
 
+- [CoreInk firmware](firmware/README.md): ESP-IDF build, USB provisioning, e-paper display, offline cache, and battery operation.
+- [Public Pebble inbox](https://pebble-little-moments.niko370669.chatgpt.site): send a message to the connected device; [Worker source](web/pebble/README.md).
 - [Library reference](docs/library.md): custom catalogs, providers, hold timing, errors, cancellation, assets.
 - [HTTP reference](docs/api.md): authentication, endpoints, polling, concurrency, compatibility.
 - [Migration from 0.1](docs/migration.md).

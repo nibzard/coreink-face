@@ -1,0 +1,109 @@
+{
+  "label": "before",
+  "site": "https://pebble-little-moments.niko370669.chatgpt.site",
+  "date": "2026-10-23T11:25:25Z",
+  "samples": [
+    {
+      "revision": 16,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 728,
+      "accept_to_device_poll_ms": 63798,
+      "submit_to_refresh_complete_ms": 75224,
+      "poll_ms": 5671,
+      "render_ms": 1400,
+      "awake_ms": 17533,
+      "sleep_s": 59,
+      "battery_mv": 4193,
+      "post_render_to_sleep_ms": 1081
+    },
+    {
+      "revision": 17,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 463,
+      "accept_to_device_poll_ms": 69276,
+      "submit_to_refresh_complete_ms": 75976,
+      "poll_ms": 10143,
+      "render_ms": 1400,
+      "awake_ms": 17537,
+      "sleep_s": 59,
+      "battery_mv": 4207,
+      "post_render_to_sleep_ms": 1072
+    },
+    {
+      "revision": 18,
+      "face": "small-dots",
+      "selection": {
+        "source": "jev",
+        "reason": "unchanged"
+      },
+      "submit_to_accept_ms": 512,
+      "accept_to_device_poll_ms": 67536,
+      "submit_to_refresh_complete_ms": 75826,
+      "poll_ms": 8595,
+      "render_ms": 1400,
+      "awake_ms": 17532,
+      "sleep_s": 59,
+      "battery_mv": 4203,
+      "post_render_to_sleep_ms": 1075
+    }
+  ],
+  "energy": {
+    "measured": false,
+    "reason": "USB powered; CoreInk battery ADC measures voltage, not current or charge. No current logger connected."
+  },
+  "summary": {
+    "submit_to_accept_ms": {
+      "min": 463,
+      "median": 512,
+      "max": 728
+    },
+    "submit_to_refresh_complete_ms": {
+      "min": 75224,
+      "median": 75826,
+      "max": 75976
+    },
+    "poll_ms": {
+      "min": 5671,
+      "median": 8595,
+      "max": 10143
+    },
+    "render_ms": {
+      "min": 1400,
+      "median": 1400,
+      "max": 1400
+    },
+    "awake_ms": {
+      "min": 17532,
+      "median": 17533,
+      "max": 17537
+    },
+    "post_render_to_sleep_ms": {
+      "min": 1072,
+      "median": 1075,
+      "max": 1081
+    }
+  },
+  "idle_cycles": [
+    {
+      "awake_ms": 14928,
+      "sleep_s": 59,
+      "battery_mv": 4207
+    }
+  ],
+  "complete": true,
+  "method": {
+    "polling": "normal timer sleep; no forced USB poll",
+    "send_phase": "immediately after observed sleep event",
+    "render_completion": "panel busy signal via firmware serial metric; not optical capture",
+    "power": "USB connected and charging",
+    "cpu_mhz": 160
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "device": "pebble",
+  "checks": [
+    {
+      "name": "wifi_unavailable",
+      "passed": true,
+      "polls": [
+        {
+          "status": -1,
+          "retry": 60,
+          "failures": 1,
+          "heap": 198724
+        },
+        {
+          "status": -1,
+          "retry": 69,
+          "failures": 2,
+          "heap": 198724
+        },
+        {
+          "status": -1,
+          "retry": 145,
+          "failures": 3,
+          "heap": 198724
+        }
+      ],
+      "redraws": 0
+    },
+    {
+      "name": "wifi_recovery",
+      "passed": true,
+      "status": 304,
+      "redraws": 0
+    },
+    {
+      "name": "api_unavailable",
+      "passed": true,
+      "polls": [
+        {
+          "status": -1,
+          "retry": 60,
+          "failures": 1,
+          "heap": 198704
+        },
+        {
+          "status": -1,
+          "retry": 62,
+          "failures": 2,
+          "heap": 198704
+        },
+        {
+          "status": -1,
+          "retry": 125,
+          "failures": 3,
+          "heap": 198696
+        }
+      ],
+      "redraws": 0
+    },
+    {
+      "name": "api_recovery",
+      "passed": true,
+      "status": 304,
+      "redraws": 0
+    },
+    {
+      "name": "explicit_payload",
+      "passed": true,
+      "face": "hearts",
+      "message": "Hello, Pebble!"
+    },
+    {
+      "name": "whole_screen_refresh_guard",
+      "passed": true,
+      "observed_gap_seconds": 15.056
+    },
+    {
+      "name": "message_clear",
+      "passed": true
+    },
+    {
+      "name": "restart_persistence",
+      "passed": true,
+      "status": 304,
+      "redraws": 0
+    },
+    {
+      "name": "live_jev",
+      "passed": true,
+      "face": "sleepy",
+      "source": "jev",
+      "reason": "selected"
+    }
+  ],
+  "visual": {
+    "word_wrap": true,
+    "message_clear": true,
+    "jev_face": true
+  },
+  "outage_method": "Temporary USB fault injection: Wi-Fi unavailable and real API TCP connection refusal; original origin/cache scope retained.",
+  "complete": true
+}
