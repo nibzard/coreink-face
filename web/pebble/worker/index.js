@@ -33,35 +33,21 @@ async function boundedJson(stream, limit) {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 }
 
-function displayFrame(value) {
-  if (!value || typeof value !== 'object' || typeof value.face !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(value.face) ||
-      typeof value.message !== 'string' || Array.from(value.message).length > 120 ||
-      !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error('bad_frame');
-  const selection = value.selection && typeof value.selection === 'object' ? {
-    source: String(value.selection.source || ''), reason: String(value.selection.reason || ''),
-  } : {};
-  return { face: value.face, message: value.message, revision: value.revision,
-    nextPollSeconds: Math.max(15, Math.min(3600, Number(value.nextPollSeconds) || 60)), selection };
-}
-
-async function upstream(env, method = 'GET', body, etag) {
+async function upstream(env, body, preview = false) {
   const origin = new URL(env.PEBBLE_API_ORIGIN);
   if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash ||
       !/^[a-zA-Z0-9_-]{1,64}$/.test(env.PEBBLE_DEVICE_ID || '')) throw new Error('configuration');
-  const token = method === 'GET' ? env.PEBBLE_READER_TOKEN : env.PEBBLE_WRITER_TOKEN;
+  const token = env.PEBBLE_WRITER_TOKEN;
   if (!token) throw new Error('configuration');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(new URL('/v1/devices/' + env.PEBBLE_DEVICE_ID + '/display', origin), {
-      method, headers: {
+    const response = await fetch(new URL(preview ? '/v1/render' : '/v1/devices/' + env.PEBBLE_DEVICE_ID + '/messages', origin), {
+      method: 'POST', headers: {
         Authorization: 'Bearer ' + token, Accept: 'application/json', 'User-Agent': 'PebbleMoments/1.0',
-        ...(body ? { 'Content-Type': 'application/json' } : {}), ...(etag ? { 'If-None-Match': etag } : {}),
+        'Content-Type': 'application/json',
       }, body: body ? JSON.stringify(body) : undefined, signal: controller.signal, redirect: 'manual',
     });
-    const validator = response.headers.get('ETag');
-    const headers = validator && validator.length <= 256 ? { ETag: validator } : {};
-    if (response.status === 304) return new Response(null, { status: 304, headers: { ...SECURITY, ...headers } });
     if (!response.ok) {
       await response.body?.cancel();
       const messages = {
@@ -72,7 +58,13 @@ async function upstream(env, method = 'GET', body, etag) {
       return json({ error: messages[response.status] || 'Pebble could not save this message. Please try again shortly.' },
         response.status === 404 || response.status === 409 || response.status === 429 ? response.status : 502);
     }
-    return json(displayFrame(await boundedJson(response.body, 8192)), 200, headers);
+    const queued=await boundedJson(response.body,8192);
+    if(preview) {
+      if(typeof queued.face !== 'string' || !Object.hasOwn(DEVICE_ASSETS.faces,queued.face)) throw Error('bad_frame');
+      return json({face:queued.face});
+    }
+    if(queued.queued!==true || !Number.isSafeInteger(queued.id) || queued.id<1)throw Error('bad_frame');
+    return json({queued:true,id:queued.id,face:body.face},202);
   } finally { clearTimeout(timer); }
 }
 
@@ -83,13 +75,14 @@ export default {
       if (request.method === 'HEAD' && url.pathname === '/') return new Response(null,{headers:SECURITY});
       if (request.method === 'GET') {
         if (url.pathname === '/') return text(PAGE, 'text/html; charset=utf-8');
-        if (url.pathname === '/style.css') return text(STYLE, 'text/css; charset=utf-8');
+        if (url.pathname === '/style.css') return text(STYLE+HISTORY_STYLE, 'text/css; charset=utf-8');
         if (url.pathname === '/app.js') return text(APP, 'text/javascript; charset=utf-8');
         if (url.pathname === '/device.js') return text(DEVICE_MODULE, 'text/javascript; charset=utf-8');
         if (url.pathname === '/font-license.txt') return text(FONT_LICENSE, 'text/plain; charset=utf-8');
-        if (url.pathname === '/api/status') { const gate = await env.DB.prepare("SELECT next_at FROM send_gate WHERE key='global'").first(); return json({retryAfterSeconds: Math.max(0, Math.ceil(((gate?.next_at || 0)-Date.now())/1000)), intervalSeconds:60}); }
+
       }
-      if (request.method === 'POST' && url.pathname === '/api/moments') {
+      if (request.method === 'POST' && ['/api/moments','/api/preview'].includes(url.pathname)) {
+        const preview = url.pathname === '/api/preview';
         const origin = request.headers.get('Origin');
         if ((origin && origin !== url.origin && origin !== EXPECTED_ORIGIN) || request.headers.get('Sec-Fetch-Site') === 'cross-site')
           return json({ error: 'Open this page directly to send a message.' }, 403);
@@ -98,19 +91,21 @@ export default {
         let input;
         try { input = await boundedJson(request.body, 2048); }
         catch (error) { return json({ error: error.message === 'too_large' ? 'This moment is a little too long.' : 'Please check your message and try again.' }, 400); }
-        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'message') ||
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'message' && (preview || key !== 'face')) ||
             typeof input.message !== 'string' || !input.message.trim() || Array.from(input.message).length > 120 ||
             /[\u0000-\u0009\u000B-\u001F\u007F]/u.test(input.message))
           return json({ error: 'Write a message of 1–120 characters. New lines are welcome.' }, 400);
-        if (!env.DB) return json({error:'Sending is temporarily unavailable.'},503);
-        const now = Date.now();
-        const claim = await env.DB.prepare("INSERT INTO send_gate (key,next_at) VALUES ('global',?) ON CONFLICT(key) DO UPDATE SET next_at=excluded.next_at WHERE send_gate.next_at<=? RETURNING next_at").bind(now+60000,now).first();
-        if (!claim) {
-          const gate = await env.DB.prepare("SELECT next_at FROM send_gate WHERE key='global'").first();
-          const retry = Math.max(1,Math.ceil((gate.next_at-now)/1000));
-          return json({error:'Please wait before sending another message.',retryAfterSeconds:retry},429,{'Retry-After':String(retry)});
+        if(input.face !== undefined && (typeof input.face !== 'string' || !Object.hasOwn(DEVICE_ASSETS.faces,input.face)))
+          return json({error:'Please choose a valid expression.'},400);
+        const draft = {message:input.message,state:{kind:'public-message'}};
+        if(preview) return await upstream(env,draft,true);
+        let face=input.face;
+        if(face === undefined) {
+          const selection=await upstream(env,draft,true);
+          if(!selection.ok) return selection;
+          face=(await selection.json()).face;
         }
-        return await upstream(env, 'PUT', { message: input.message, state: { kind: 'public-message' } });
+        return await upstream(env,{...draft,face});
       }
       return json({ error: 'This page could not be found.' }, 404);
     } catch (error) {
@@ -121,20 +116,93 @@ export default {
   },
 };
 
-const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pebble / inbox</title><meta name="description" content="Send a message to the e-paper display on Nikola’s desk."><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head><body><div class="shell"><header><a href="/">[ pebble ]</a><span>/ public inbox</span><span class="indicator">● 200 × 200</span></header><main><div class="intro"><span class="eyebrow">NIKOLA’S DESK</span><h1>Send a message<span>.</span></h1><p>It shows up on my little e-paper display.</p></div><div class="workspace"><form id="moment-form"><div class="label-row"><label for="message">Your message</label><span id="count">0 / 120</span></div><textarea id="message" name="message" rows="4" placeholder="Hello, Nikola!" maxlength="240" aria-describedby="message-help"></textarea><p id="message-help">Two centered lines. Extra text ends with …</p><button id="send" disabled><span id="send-label">Send message</span><span aria-hidden="true">↗</span></button><p id="feedback" role="status" aria-live="polite">Checking availability…</p></form><aside><div class="preview"><canvas id="display" width="200" height="200" role="img" aria-label="Your message preview"></canvas></div><div class="preview-copy"><span class="eyebrow">YOUR PREVIEW</span><p>The expression is chosen when you send.</p><p>Displays the latest message. Checks about once a minute.</p></div></aside></div></main><footer><span>One message per minute, shared by everyone.</span><span>⌘ / Ctrl + Enter</span></footer></div></body></html>`;
-const STYLE = `:root{color-scheme:dark;--bg:#101112;--panel:#17191b;--line:#34373a;--text:#f2f3f0;--muted:#a0a5a8;--accent:#d2ff5a;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-synthesis:none}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}.shell{width:min(900px,100%);margin:auto;padding:0 22px}header{height:68px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}header a{color:var(--text);text-decoration:none;font-weight:700}.indicator{margin-left:auto;font-size:10px;color:var(--accent)}.intro{padding:32px 0 24px}.eyebrow{font-size:10px;letter-spacing:.09em;color:var(--muted)}h1{font-family:Arial,sans-serif;font-size:36px;letter-spacing:-1.6px;margin:12px 0;line-height:1.05}h1 span{color:var(--accent)}.intro p{font-size:12px;color:var(--muted);line-height:1.5;margin:0}.label-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:10px}#count{color:var(--muted);font-variant-numeric:tabular-nums}textarea{display:block;width:100%;height:132px;resize:vertical;background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:14px;font:16px/1.6 ui-monospace,monospace;color:var(--text);outline:none}textarea:focus{border-color:var(--accent)}textarea::placeholder{color:#73797d}#message-help{font-size:10px;color:var(--muted);margin:9px 0 20px}button{width:100%;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--accent);border:0;border-radius:2px;color:#15180d;font:700 12px ui-monospace,monospace;cursor:pointer}button:disabled{background:#303530;color:#92998a;cursor:default}button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}#feedback{font-size:11px;line-height:1.5;min-height:32px;margin:12px 0;color:var(--muted)}#feedback.error{color:var(--text)}aside{display:flex;gap:18px;border-top:1px solid var(--line);padding-top:16px;align-items:center}.preview{flex-shrink:0;background:#fff;padding:5px;border:1px solid #666}.preview canvas{width:90px;height:90px;display:block;image-rendering:pixelated}.preview-copy p{font-size:10px;color:var(--muted);line-height:1.6;margin:7px 0}.preview-copy p:last-child{margin-bottom:0}footer{border-top:1px solid var(--line);margin-top:24px;padding:16px 0;font-size:9px;line-height:1.6;color:var(--muted);display:flex;justify-content:space-between;gap:16px}footer span:last-child{display:none}@media(min-width:700px){.shell{padding:0 36px}header{height:88px}.intro{padding:64px 0 40px}h1{font-size:54px}.intro p{font-size:13px}.workspace{display:grid;grid-template-columns:1.5fr 1fr;gap:48px}textarea{height:168px}aside{border-top:0;border-left:1px solid var(--line);padding:0 0 0 40px;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px}.preview canvas{width:160px;height:160px}.preview-copy p{font-size:11px}footer{margin-top:40px}footer span:last-child{display:inline}}@media(max-height:700px) and (max-width:699px){header{height:52px}.intro{padding:22px 0 18px}h1{font-size:32px}textarea{height:110px}#message-help{margin-bottom:14px}aside{padding-top:12px}.preview canvas{width:76px;height:76px}footer{margin-top:16px;padding:12px 0}}`;
+const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pebble / inbox</title><meta name="description" content="Send a message to the e-paper display on Nikola’s desk."><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head><body><div class="shell"><header><a href="/">[ pebble ]</a><span>/ public inbox</span><span class="indicator">● 200 × 200</span></header><main><div class="intro"><span class="eyebrow">NIKOLA’S DESK</span><h1>Send a message<span>.</span></h1><p>It shows up on my little e-paper display.</p></div><div class="workspace"><form id="moment-form"><div class="label-row"><label for="message">Your message</label><span id="count">0 / 120</span></div><textarea id="message" name="message" rows="4" placeholder="Hello, Nikola!" maxlength="240" aria-describedby="message-help"></textarea><p id="message-help">Two centered lines. Extra text ends with …</p><button id="send" disabled><span id="send-label">Send</span></button><p id="feedback" role="status" aria-live="polite"></p></form><aside aria-label="Message preview"><div class="preview"><canvas id="display" width="200" height="200" role="img" aria-label="Your message preview"></canvas></div><div class="preview-copy"><span class="eyebrow">YOUR PREVIEW</span><p>Your draft on the e-paper display.</p><p id="preview-status" role="status" aria-live="polite">Write a message to choose an expression.</p></div></aside></div><section class="sent-history" aria-labelledby="history-title"><div class="history-heading"><h2 id="history-title">Your sent messages</h2><button id="clear-history" type="button" class="quiet-button" hidden>Clear history</button></div><p id="history-note">Saved only in this browser. Other visitors cannot see this list.</p><p id="history-empty">Your sent messages will appear here.</p><ol id="sent-list"></ol></section></main><footer><span>⌘ / Ctrl + Enter</span></footer></div></body></html>`;
+const STYLE = `:root{color-scheme:dark;--bg:#101112;--panel:#17191b;--line:#34373a;--text:#f2f3f0;--muted:#a0a5a8;--accent:#d2ff5a;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-synthesis:none}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}.shell{width:min(900px,100%);margin:auto;padding:0 22px}header{height:68px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}header a{color:var(--text);text-decoration:none;font-weight:700}.indicator{margin-left:auto;font-size:10px;color:var(--accent)}.intro{padding:32px 0 24px}.eyebrow{font-size:10px;letter-spacing:.09em;color:var(--muted)}h1{font-family:Arial,sans-serif;font-size:36px;letter-spacing:-1.6px;margin:12px 0;line-height:1.05}h1 span{color:var(--accent)}.intro p{font-size:12px;color:var(--muted);line-height:1.5;margin:0}.label-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:10px}#count{color:var(--muted);font-variant-numeric:tabular-nums}textarea{display:block;width:100%;height:132px;resize:vertical;background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:14px;font:16px/1.6 ui-monospace,monospace;color:var(--text);outline:none}textarea:focus{border-color:var(--accent)}textarea::placeholder{color:#73797d}#message-help{font-size:10px;color:var(--muted);margin:9px 0 20px}button{width:100%;height:48px;display:flex;align-items:center;justify-content:center;padding:0 16px;background:var(--accent);border:0;border-radius:2px;color:#15180d;font:700 12px ui-monospace,monospace;cursor:pointer}button:disabled{background:#303530;color:#92998a;cursor:default}button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}#feedback{font-size:11px;line-height:1.5;min-height:32px;margin:12px 0;color:var(--muted)}#feedback.error{color:var(--text)}aside{display:flex;gap:18px;border-top:1px solid var(--line);padding-top:16px;align-items:center}.preview{flex-shrink:0;background:#fff;padding:5px;border:1px solid #666}.preview canvas{width:90px;height:90px;display:block;image-rendering:pixelated}.preview-copy p{font-size:10px;color:var(--muted);line-height:1.6;margin:7px 0}.preview-copy p:last-child{margin-bottom:0}footer{border-top:1px solid var(--line);margin-top:24px;padding:16px 0;font-size:9px;line-height:1.6;color:var(--muted);display:flex;justify-content:space-between;gap:16px}footer span:last-child{display:none}@media(min-width:700px){.shell{padding:0 36px}header{height:88px}.intro{padding:64px 0 40px}h1{font-size:54px}.intro p{font-size:13px}.workspace{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:48px}textarea{height:168px}aside{border-top:0;border-left:1px solid var(--line);padding:0 0 0 40px;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px}.preview canvas{width:160px;height:160px}.preview-copy p{font-size:11px}footer{margin-top:40px}footer span:last-child{display:inline}}@media(max-height:700px) and (max-width:699px){header{height:52px}.intro{padding:22px 0 18px}h1{font-size:32px}textarea{height:110px}#message-help{margin-bottom:14px}aside{padding-top:12px}.preview canvas{width:76px;height:76px}footer{margin-top:16px;padding:12px 0}}`;
+const HISTORY_STYLE = `.sent-history{margin-top:32px;padding-top:24px;border-top:1px solid var(--line)}.history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.sent-history h2{font-size:13px;font-weight:500;margin:0}.sent-history p{font-size:11px;line-height:1.6;color:var(--muted)}#sent-list{list-style:none;padding:0;margin:16px 0 0}#sent-list li{display:flex;gap:16px;padding:16px 0;border-top:1px solid var(--line);align-items:flex-start}#sent-list canvas{width:64px;height:64px;background:#fff;image-rendering:pixelated;flex-shrink:0}#sent-list .sent-message{color:var(--text);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}#sent-list time{font-size:10px;color:var(--muted)}.quiet-button{width:auto;height:auto;padding:6px 0;background:transparent;color:var(--muted);font-size:10px;text-decoration:underline;font-weight:400}.quiet-button[hidden]{display:none}`;
 const APP = String.raw`
 import {renderFrame} from '/device.js';
 const $=s=>document.querySelector(s),input=$('#message'),send=$('#send');
-let busy=false,ready=false,nextAt=0,face='small-dots';
-function feedback(s,error=false){$('#feedback').textContent=s;$('#feedback').classList.toggle('error',error)}
-function update(){const n=Array.from(input.value).length,left=Math.max(0,Math.ceil((nextAt-Date.now())/1000));$('#count').textContent=n+' / 120';send.disabled=!ready||busy||left>0||!input.value.trim()||n>120;$('#send-label').textContent=busy?'Sending…':left?'Available in '+left+'s':'Send message'}
+const historyKey='pebble.sent.v1',limit=20,faces=new Map(),pending=new Map();
+let busy=false,face='small-dots',timer,previewVersion=0,history=[],storageAvailable=true;
 function preview(){renderFrame($('#display'),face,input.value)}
-input.addEventListener('input',()=>{update();preview()});
-async function status(){try{const r=await fetch('/api/status'),data=await r.json();if(!r.ok)throw Error();nextAt=Date.now()+data.retryAfterSeconds*1000;ready=true;feedback(data.retryAfterSeconds?'The inbox is cooling down. You can write your message now.':'Ready to send.');update()}catch{feedback('Sending is unavailable. Try reloading in a moment.',true)}}
-$('#moment-form').addEventListener('submit',async e=>{e.preventDefault();if(send.disabled)return;busy=true;update();feedback('Choosing an expression and saving…');try{const r=await fetch('/api/moments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:input.value})}),data=await r.json();if(!r.ok){if(data.retryAfterSeconds)nextAt=Date.now()+data.retryAfterSeconds*1000;throw Error(data.error||'Could not send. Please try again.')}face=data.face;preview();nextAt=Date.now()+60000;feedback('Saved. The device checks about once a minute.')}catch(error){feedback(error.message,true)}finally{busy=false;update()}});
+function feedback(s){$('#feedback').textContent=s}
+function update(){const n=Array.from(input.value).length;$('#count').textContent=n+' / 120';send.disabled=busy||!input.value.trim()||n>120;$('#send-label').textContent=busy?'Sending…':'Send'}
+function readHistory(){
+ try{
+  const saved=JSON.parse(localStorage.getItem(historyKey)||'[]');
+  if(!Array.isArray(saved))return [];
+  return saved.filter(item=>item&&Number.isSafeInteger(item.id)&&item.id>0&&typeof item.message==='string'&&Array.from(item.message).length<=120&&typeof item.face==='string'&&/^[a-z0-9-]{1,64}$/.test(item.face)&&Number.isFinite(item.sentAt)&&Math.abs(item.sentAt)<8640000000000000).slice(0,limit);
+ }catch{storageAvailable=false;return []}
+}
+function renderHistory(){
+ $('#sent-list').replaceChildren();
+ $('#history-empty').hidden=history.length>0;$('#clear-history').hidden=history.length===0;
+ $('#history-note').textContent=storageAvailable?'Saved only in this browser. Other visitors cannot see this list.':'Browser storage is unavailable. This list lasts only until you close or reload this page.';
+ for(const item of history){
+  const row=document.createElement('li'),canvas=document.createElement('canvas'),copy=document.createElement('div'),message=document.createElement('p'),time=document.createElement('time');
+  canvas.width=canvas.height=200;canvas.setAttribute('aria-hidden','true');
+  message.className='sent-message';message.textContent=item.message;
+  time.dateTime=new Date(item.sentAt).toISOString();time.textContent='Sent · '+new Date(item.sentAt).toLocaleString();
+  copy.append(message,time);row.append(canvas,copy);$('#sent-list').append(row);renderFrame(canvas,item.face,item.message);
+ }
+}
+function remember(item){
+ const saved=readHistory();
+ history=[item,...history,...saved].filter((entry,index,all)=>all.findIndex(other=>other.id===entry.id)===index).sort((a,b)=>b.sentAt-a.sentAt).slice(0,limit);
+ try{localStorage.setItem(historyKey,JSON.stringify(history))}catch{storageAvailable=false}
+ renderHistory();
+}
+async function chooseFace(message){
+ if(faces.has(message))return faces.get(message);
+ if(pending.has(message))return pending.get(message);
+ const choice=(async()=>{
+  const response=await fetch('/api/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});
+  const data=await response.json();
+  if(!response.ok||typeof data.face!=='string')throw Error(data.error||'Could not choose an expression. Please try again.');
+  faces.set(message,data.face);if(faces.size>30)faces.delete(faces.keys().next().value);
+  return data.face;
+ })();
+ pending.set(message,choice);
+ try{return await choice}finally{pending.delete(message)}
+}
+async function refreshExpression(message,version){
+ try{
+  const selected=await chooseFace(message);
+  if(version!==previewVersion||input.value!==message)return;
+  face=selected;preview();$('#preview-status').textContent='This expression will be sent with your message.';
+ }catch{
+  if(version===previewVersion)$('#preview-status').textContent='Expression unavailable. Send will try again.';
+ }
+}
+function draftChanged(){
+ clearTimeout(timer);const version=++previewVersion,message=input.value;
+ face=faces.get(message)||'small-dots';feedback('');update();preview();
+ if(!message.trim()||Array.from(message).length>120){$('#preview-status').textContent='Write a message to choose an expression.';return}
+ $('#preview-status').textContent=faces.has(message)?'This expression will be sent with your message.':'Choosing an expression…';
+ timer=setTimeout(()=>refreshExpression(message,version),650);
+}
+input.addEventListener('input',draftChanged);
+$('#moment-form').addEventListener('submit',async e=>{
+ e.preventDefault();if(send.disabled)return;
+ clearTimeout(timer);const message=input.value,version=++previewVersion;
+ busy=true;update();feedback('Choosing an expression…');
+ try{
+  const selected=await chooseFace(message);
+  if(input.value===message&&version===previewVersion){face=selected;preview()}
+  feedback('Sending…');
+  const r=await fetch('/api/moments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,face:selected})}),data=await r.json();
+  if(!r.ok||data.queued!==true||!Number.isSafeInteger(data.id))throw Error(data.error||'Could not send. Please try again.');
+  remember({id:data.id,message,face:selected,sentAt:Date.now()});
+  if(input.value===message){input.value='';draftChanged()}
+  feedback('Sent. It will appear when Pebble reaches your message.');
+ }catch(error){feedback(error.message)}finally{busy=false;update();input.focus()}
+});
+$('#clear-history').addEventListener('click',()=>{
+ history=[];try{localStorage.removeItem(historyKey)}catch{storageAvailable=false}renderHistory();
+});
+window.addEventListener('storage',event=>{if(event.key===historyKey){history=readHistory();renderHistory()}});
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();$('#moment-form').requestSubmit()}});
-setInterval(update,1000);preview();status();
+history=readHistory();renderHistory();update();preview();
 `;
 
 export function layoutText(message, glyphs) {

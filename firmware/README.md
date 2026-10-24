@@ -91,6 +91,31 @@ between polls. Omit it for battery operation. A polling override of `0`
 clears this firmware's NVS namespace and display cache.
 The `awake on/off` commands change sleep mode without re-entering credentials.
 
+Wheel up/down browses the last **64 rendered messages**, cached in a separate
+128 KB NVS history partition. Center click from history resumes the incoming queue.
+Click again on the current message to read its full text without the character;
+another click restores the normal face view. Browsing
+pauses incoming delivery until the center button resumes it. Wheel controls
+wake the device from light sleep. Rapid navigation coalesces with a 120 ms debounce and uses the panel’s fast
+waveform with the vendor’s differential transition tables, preserving the
+controller’s old-image bank across consecutive partial updates. The red LED
+pulses briefly on wheel input. After 15 seconds of inactivity,
+a quality refresh cleans up ghosting. Automatic updates retain the conservative
+refresh guard; faster refreshes are limited to direct user interaction. The
+manufacturer recommends avoiding sustained high-frequency refreshing. History and the selected item survive
+reset and work offline.
+
+The device acknowledges a queued revision only after its content has been
+painted (or found pixel-identical). Acknowledgement is sent on the next network
+cycle before fetching the next message. Pending messages remain in the API
+while offline. The reader token is allowed to acknowledge but cannot enqueue.
+
+Light sleep supports all three active-low wheel contacts without a custom ULP
+program. It consumes more idle power than the earlier deep-sleep benchmark;
+that benchmark is historical and does not establish this version’s battery life.
+The application partition is now 0x3d0000 bytes; credentials remain at their
+original NVS address. Flash the partition table with the application.
+
 Configuration uses atomic, versioned NVS blobs. **The default development build
 does not encrypt flash or NVS.** Credentials are protected from accidental
 logging, but someone with physical flash access can recover them. Enabling
@@ -139,6 +164,11 @@ messages at word boundaries onto at most **two lines**. Explicit newlines are
 respected. Each line is independently centered horizontally on the screen.
 Text beyond the two-line limit ends in `…`; long unbroken words are
 split only when they cannot fit a whole line. The full message remains in the API.
+Clicking the current message opens a text-only reading view using the same font
+across up to nine lines. All 120 supported message code points fit. If word wrapping
+or explicit line breaks would overflow, this view wraps by character and treats
+line breaks as spaces. Incoming delivery pauses while reading; clicking again or
+turning the wheel leaves the reading view. Reset restores the normal face view.
 ASCII and Latin U+00A0–U+017F,
 including Čć, Žž, Šš, and Đđ, are embedded. Unsupported characters render as
 `?`. Unknown face IDs use `small-dots`, retaining the message.
@@ -158,7 +188,8 @@ off during normal operation and deep sleep; it is not used as an error signal.
 Animations and partial refresh tuning
 are not part of this version.
 
-- Tap the **middle dial button** to wake and poll.
+- Tap the **middle dial button** from history/status to return to the current message.
+- Tap on the current message to toggle the full-screen text view.
 - Hold it for at least one second, then release, to show status.
 - On a sleeping device, keep it held through startup to request status.
 - USB status commands give diagnostics without redrawing the display.
@@ -220,6 +251,8 @@ python3 firmware/test/api_integration.py
 
 # Uses the identical parser and pixel renderer used by the device.
 firmware/build-host/ink-preview firmware/test/snapshot.json firmware/build-host/preview.pbm
+# Preview the full-screen reading view without a device.
+firmware/build-host/ink-preview firmware/test/snapshot.json firmware/build-host/full-message.pbm --full-message
 ```
 
 Host tests enable AddressSanitizer and UndefinedBehaviorSanitizer by default.
@@ -288,8 +321,8 @@ treating a hardware release as verified, check these on an actual CoreInk:
    loops, and compare free heap over an extended run.
 7. Measure sleep current, Wi-Fi/TLS energy, battery readings, and panel ghosting.
 
-Normal timer wakes count their completed sleep toward the local 15-second
-refresh guard. Cold resets and early button wakes keep the conservative guard.
+Light sleep retains the monotonic clock, so elapsed sleep satisfies the local
+15-second refresh guard. Cold resets keep the conservative guard.
 The post-poll USB/button service window is 250 ms; reset retains an eight-second
 provisioning window. Neither change alters the API polling interval.
 

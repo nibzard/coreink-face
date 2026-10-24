@@ -52,9 +52,11 @@ uint32_t crc32(const void* data, size_t length);
 bool next_codepoint(const char*& cursor, uint32_t& codepoint);
 bool valid_message(const char* message);
 constexpr size_t kRows = 2;
+constexpr uint8_t kFullMessageRows = 9;
 constexpr uint16_t kTextWidth = 184;
 struct PositionedGlyph { uint32_t codepoint; uint16_t x; uint8_t row; };
 struct TextLayout { PositionedGlyph glyphs[121]{}; size_t count = 0; bool truncated = false; };
 uint16_t glyph_advance(uint32_t codepoint);
 TextLayout layout_message(const char* message);
+TextLayout layout_full_message(const char* message);
 } // namespace ink

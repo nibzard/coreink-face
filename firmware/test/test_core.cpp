@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <vector>
 
 static unsigned checks = 0;
 #define CHECK(condition) do { ++checks; if (!(condition)) { std::cerr << __LINE__ << ": " #condition "\n"; std::exit(1); } } while (0)
@@ -77,6 +78,12 @@ int main() {
     CHECK(stream.offset == 0);
     ink::Snapshot first;
     CHECK(parse(json(), first));
+    auto ack_json=json();ack_json.pop_back();ack_json+=",\"requiresAck\":true}";
+    CHECK(parse(ack_json,first));CHECK(first.requires_ack);
+    auto invalid_ack=json();invalid_ack.pop_back();invalid_ack+=",\"requiresAck\":\"yes\"}";
+    CHECK(!parse(invalid_ack,first));
+    CHECK(parse(json(),first));CHECK(!first.requires_ack);
+
     CHECK(!std::strcmp(first.content.face, "stars"));
     CHECK(first.revision == 1 && first.poll_seconds == 60);
     CHECK(!std::strcmp(first.etag, "\"display-v2-1\""));
@@ -117,6 +124,7 @@ int main() {
     CHECK(parse("{\"face\":\"stars\",\"message\":\"\",\"revision\":1,\"nextPollSeconds\":86400}", first));
     CHECK(first.poll_seconds == 3600);
     CHECK(parse(json(), first));
+
     ink::State state;
     CHECK(!ink::pending(state));
     ink::accept(state, first);
@@ -218,6 +226,38 @@ int main() {
     layout = ink::layout_message(std::string((ink::kTextWidth / ink::glyph_advance('i')) * ink::kRows, 'i').c_str());
     CHECK(!layout.truncated);
     CHECK(ink::known_face("stars"));
+    // Reading mode must retain every non-whitespace codepoint, even when
+    // normal word wrapping or explicit newlines would consume too many rows.
+    std::string many_lines;
+    for(int i=0;i<60;i++) many_lines+="x\n";
+    std::string wide_words;
+    for(int i=0;i<10;i++) wide_words+="abcdefghijk ";
+    for(const auto& message : {std::string("what is meaning of life and everything"),
+            std::string(120,'x'),many_lines,wide_words,std::string("Čć Žž Šš Đđ\n😀"),std::string(120,'\n')}) {
+        const auto full=ink::layout_full_message(message.c_str());
+        CHECK(!full.truncated);
+        std::vector<uint32_t> expected,actual;
+        const char* cursor=message.c_str();uint32_t cp;
+        while(*cursor && ink::next_codepoint(cursor,cp)) if(cp!=' ' && cp!='\n') expected.push_back(cp);
+        for(size_t i=0;i<full.count;i++) {
+            const auto& g=full.glyphs[i];
+            CHECK(g.row<ink::kFullMessageRows);
+            CHECK(g.x+ink::glyph_advance(g.codepoint)<=ink::kTextWidth);
+            if(g.codepoint!=' ') actual.push_back(g.codepoint);
+        }
+        CHECK(actual==expected);
+    }
+    ink::Content reading{};
+    std::strcpy(reading.face,"hearts");
+    ink::Framebuffer full_frame{},other_face{};
+    ink::render_full_message_into(reading,full_frame);
+    CHECK(std::all_of(full_frame.begin(),full_frame.end(),[](uint8_t value){return value==0;}));
+    std::strcpy(reading.message,"what is meaning of life and everything");
+    ink::render_full_message_into(reading,full_frame);
+    CHECK(full_frame!=ink::render(reading));
+    std::strcpy(reading.face,"stars");
+    ink::render_full_message_into(reading,other_face);
+    CHECK(full_frame==other_face);
     CHECK(!ink::known_face("future-face"));
     ink::Content a{}, b{};
     std::strcpy(a.face, "future-face"); std::strcpy(b.face, "small-dots");

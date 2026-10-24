@@ -23,8 +23,12 @@ ink::Config config;
 ink::State state;
 ink::History history;
 bool browsing=false, view_dirty=false;
+bool full_message=false, shown_full_message=false, request_click=false;
 int browse_delta=0;
 int64_t cycle_start_ms=0;
+int64_t last_interaction_ms=-10000;
+bool needs_cleanup=false;
+int64_t led_until_ms=0;
 ink::Framebuffer pending_frame{}, shown_frame{};
 device::CoreInkDisplay display;
 bool configured = false;
@@ -98,7 +102,11 @@ void command(char* line) {
         browse_delta += !std::strcmp(line,"history up") ? -1 : 1;
         serial_reply("INK OK history");
     } else if (!std::strcmp(line,"history live")) {
-        browsing=false;view_dirty=false;request_poll=true;serial_reply("INK OK history");
+        browsing=false;full_message=false;view_dirty=state.has_latest;local_screen=false;
+        if(history.count) history.selected=history.count-1;
+        last_interaction_ms=now_ms();request_poll=true;serial_reply("INK OK history");
+    } else if (!std::strcmp(line,"view toggle")) {
+        request_click=true;serial_reply("INK OK view");
     } else if (!std::strcmp(line, "reboot")) {
         serial_reply("INK OK reboot"); reboot();
     } else serial_reply("INK ERROR unknown_command");
@@ -127,25 +135,28 @@ void service() {
     if (!pressed && was_pressed) {
         int64_t duration = now_ms() - pressed_at;
         if (duration >= 1000) request_status = true;
-        else if (duration >= 40) { browsing=false;view_dirty=false;request_poll=true; }
+        else if (duration >= 40) request_click=true;
     }
     was_pressed = pressed;
     static bool up=false,down=false;
     static int64_t wheel_at=0;
     bool new_up=gpio_get_level(kWheelUp)==0,new_down=gpio_get_level(kWheelDown)==0;
     if(now_ms()-wheel_at>=80 && ((new_up&&!up)||(new_down&&!down))) {
-        browse_delta += new_up ? -1 : 1;wheel_at=now_ms();
+        browse_delta += new_up ? -1 : 1;wheel_at=now_ms();last_interaction_ms=now_ms();led_until_ms=now_ms()+300;
     }
     up=new_up;down=new_down;
+    gpio_set_level(kStatusLed,now_ms()<led_until_ms ? 0 : 1);
 }
 void wait_until(int64_t deadline) {
     while (now_ms() < deadline) { service(); vTaskDelay(pdMS_TO_TICKS(20)); }
 }
-bool paint(const ink::Content& content) {
+bool paint(const ink::Content& content, bool fast=false, bool text_only=false) {
     const auto paint_start = now_ms();
-    ink::render_into(content, pending_frame);
+    if(text_only) ink::render_full_message_into(content,pending_frame);
+    else ink::render_into(content, pending_frame);
     serial_reply("INK DISPLAY begin");
-    if (!display.prepare_refresh()) { serial_reply("INK ERROR display_init"); return false; }
+    if (!display.prepare_refresh(fast)) { serial_reply("INK ERROR display_init"); return false; }
+    M5.Display.setEpdMode(fast ? epd_mode_t::epd_fast : epd_mode_t::epd_quality);
     M5.Display.startWrite();
     M5.Display.fillScreen(TFT_WHITE);
     M5.Display.drawBitmap(0, 0, pending_frame.data(), 200, 200, TFT_BLACK);
@@ -153,7 +164,9 @@ bool paint(const ink::Content& content) {
     M5.Display.display();
     M5.Display.waitDisplay();
     last_refresh_ms = now_ms(); // includes completion time, conservatively
+    needs_cleanup=fast;
     bool ok = !M5.Display.displayBusy();
+    if(ok) shown_full_message=text_only;
     serial_reply(ok ? "INK DISPLAY complete" : "INK ERROR display_busy");
     char metric[100];
     std::snprintf(metric, sizeof(metric), "INK METRIC render_ms=%lld revision=%llu", static_cast<long long>(now_ms()-paint_start), static_cast<unsigned long long>(state.latest.revision));
@@ -161,11 +174,15 @@ bool paint(const ink::Content& content) {
     return ok;
 }
 bool checkpoint() {
-    if (configured && !device::save_cache(config, state)) { serial_reply("INK ERROR cache_storage"); return false; }
+    // Cache stores content, not the temporary reading mode. A restart must
+    // repaint the regular view even when the server returns the same ETag.
+    auto saved=state;
+    if(shown_full_message) saved.has_shown=false;
+    if (configured && !device::save_cache(config, saved)) { serial_reply("INK ERROR cache_storage"); return false; }
     return true;
 }
 void flush_display() {
-    if (browsing || local_screen || !ink::pending(state)) return;
+    if (browsing || full_message || local_screen || !ink::pending(state)) return;
     // Compare actual pixels so unsupported glyphs, cropped text, and unknown
     // face IDs do not cause needless physical refreshes.
     ink::render_into(state.latest.content, pending_frame);
@@ -175,12 +192,13 @@ void flush_display() {
         ink::remember(history,state.latest);device::save_history(config,history);checkpoint();
         return;
     }
-    wait_until(now_ms() + ink::refresh_wait(now_ms(), last_refresh_ms));
+    const bool interactive=now_ms()-last_interaction_ms<3000;
+    if(!interactive) wait_until(now_ms() + ink::refresh_wait(now_ms(), last_refresh_ms));
     // Record uncertainty before touching hardware: loss of power midway through
     // a refresh must force recovery on the next boot, even after an HTTP 304.
     state.has_shown = false;
     if (!checkpoint()) return;
-    if (paint(state.latest.content)) { ink::displayed(state); checkpoint(); ink::remember(history,state.latest);device::save_history(config,history); }
+    if (paint(state.latest.content,interactive)) { ink::displayed(state); checkpoint(); ink::remember(history,state.latest);device::save_history(config,history); }
     else serial_reply("INK ERROR display_busy");
 }
 void show_local(const char* message) {
@@ -201,6 +219,7 @@ void show_local(const char* message) {
     local_screen = true;
 }
 void show_status() {
+    full_message=false;
     char text[180];
     std::snprintf(text, sizeof(text), "%s\nHTTP %d  Battery %d%%\nHold: status; tap: poll",
         configured ? config.device_id : "USB setup required", last_status,
@@ -209,7 +228,12 @@ void show_status() {
     request_status = false;
 }
 void sleep_for(uint32_t seconds) {
-    device::retain_cache(config, state);
+    if(needs_cleanup) seconds=std::min<uint32_t>(seconds,std::max<uint32_t>(1,(ink::refresh_wait(now_ms(),last_refresh_ms)+999)/1000));
+    auto retained=state;
+    if(shown_full_message) retained.has_shown=false;
+    device::retain_cache(config, retained);
+    if(now_ms()<led_until_ms) wait_until(led_until_ms);
+    ESP_ERROR_CHECK(gpio_set_level(kStatusLed,1));
     // GPIO low-level wake lets either direction of the wheel wake the ESP32.
     // Light sleep retains the browsing list in RAM and avoids a custom ULP program.
     if(gpio_get_level(kButton)==0 || gpio_get_level(kWheelUp)==0 || gpio_get_level(kWheelDown)==0) return;
@@ -278,6 +302,7 @@ extern "C" void app_main() {
     if (configured) {
         device::load_cache(config,state);device::load_history(config,history);
         browsing=history.count && history.selected+1<history.count;
+        view_dirty=browsing && !state.has_shown;
     }
     serial_reply("INK READY 1");
     serial_reply("INK DISPLAY init auto_refresh=0");
@@ -304,21 +329,38 @@ extern "C" void app_main() {
             request_poll = true; serial_reply("INK FAULT expired");
         }
         if(browse_delta) {
+            if(full_message) { full_message=false;view_dirty=state.has_latest;last_interaction_ms=now_ms(); }
             if(ink::navigate(history,browse_delta)) {
-                browsing=history.selected+1<history.count;view_dirty=true;
+                browsing=true;view_dirty=true;last_interaction_ms=now_ms();
                 char info[80];std::snprintf(info,sizeof(info),"INK HISTORY index=%lu total=%lu",static_cast<unsigned long>(history.selected+1),static_cast<unsigned long>(history.count));serial_reply(info);
             }
             browse_delta=0;
         }
-        if(view_dirty && ink::refresh_wait(now_ms(),last_refresh_ms)==0) {
-            const auto content=history.entries[history.selected].content;
+        if(request_click) {
+            request_click=false;last_interaction_ms=now_ms();
+            if(browsing || local_screen) {
+                browsing=false;full_message=false;local_screen=false;request_poll=true;
+            } else if(state.has_latest && state.latest.content.message[0]) {
+                full_message=!full_message;
+                if(!full_message) request_poll=true;
+            } else request_poll=true;
+            if(history.count) history.selected=history.count-1;
+            view_dirty=state.has_latest;
+            serial_reply(full_message ? "INK VIEW full_message" : "INK VIEW current");
+        }
+        if(view_dirty && now_ms()-last_interaction_ms>=120) {
+            const auto content=browsing ? history.entries[history.selected].content : state.latest.content;
             state.has_shown=false;checkpoint();
-            if(paint(content)) { state.shown=content;state.has_shown=true;checkpoint();device::save_history(config,history); }
+            if(paint(content,true,full_message)) { state.shown=content;state.has_shown=true;checkpoint();device::save_history(config,history); }
             view_dirty=false;
         }
-        if(view_dirty) { sleep_for(std::max<uint32_t>(1,(ink::refresh_wait(now_ms(),last_refresh_ms)+999)/1000));continue; }
+        if(view_dirty) { vTaskDelay(pdMS_TO_TICKS(20));continue; }
+        if(needs_cleanup && state.has_shown && ink::refresh_wait(now_ms(),last_refresh_ms)==0) {
+            const auto content=state.shown;state.has_shown=false;checkpoint();
+            if(paint(content,false,shown_full_message)) {state.shown=content;state.has_shown=true;checkpoint();}
+        }
         if (request_status) show_status();
-        if (!browsing && (request_poll || now_ms() >= next_poll)) {
+        if (!browsing && !full_message && (request_poll || now_ms() >= next_poll)) {
             request_poll = false;
             local_screen = false;
             const auto poll_start = now_ms();
@@ -326,7 +368,7 @@ extern "C" void app_main() {
             bool connected = !fault_wifi && device::connect_wifi(config);
             if (connected && device::sync_clock()) {
                 if(!fault_api && state.has_latest && state.latest.requires_ack && state.has_shown && ink::equal(state.shown,state.latest.content)) {
-                    if(device::acknowledge(config,state.latest.revision)) serial_reply("INK ACK complete");
+                    if(device::acknowledge(config,state.latest.revision)) { state.latest.requires_ack=false;checkpoint();serial_reply("INK ACK complete"); }
                     else serial_reply("INK WARNING ack_retry");
                 }
                 if (fault_api) {
@@ -370,12 +412,12 @@ extern "C" void app_main() {
             // Allow button/USB actions after a poll without keeping Wi-Fi on.
             wait_until(now_ms() + 250);
         }
-        if (!config.stay_awake && !request_poll && !request_status && !local_screen) {
-            sleep_for(browsing ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
+        if (!config.stay_awake && (!request_poll || full_message || browsing) && !request_click && !view_dirty && !request_status && !local_screen) {
+            sleep_for(browsing || full_message ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
         } else if (!config.stay_awake && local_screen && !request_status && !request_poll) {
             // Status/errors also sleep; comparing shown with latest restores
             // server content even after a conditional HTTP 304.
-            sleep_for(browsing ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
+            sleep_for(browsing || full_message ? 60 : std::max<int64_t>(1, (next_poll - now_ms() + 999) / 1000));
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

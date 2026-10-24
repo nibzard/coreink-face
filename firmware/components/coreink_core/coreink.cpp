@@ -171,14 +171,14 @@ uint32_t crc32(const void* data, size_t length) {
     while (length--) { crc ^= *p++; for (unsigned i = 0; i < 8; ++i) crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1))); }
     return ~crc;
 }
-TextLayout layout_message(const char* p) {
+static TextLayout layout_text(const char* p, uint8_t rows, bool word_wrap = true, bool paragraphs = true) {
     TextLayout out{};
     uint32_t codepoints[120]{};
     size_t size = 0;
     while (*p && size < 120) {
         uint32_t cp;
         if (!next_codepoint(p, cp)) break;
-        codepoints[size++] = cp;
+        codepoints[size++] = !paragraphs && cp == '\n' ? ' ' : cp;
     }
     bool overflow = *p != 0;
     uint8_t row = 0;
@@ -187,14 +187,14 @@ TextLayout layout_message(const char* p) {
     for (; i < size; ++i) {
         uint32_t cp = codepoints[i];
         if (cp == '\n') {
-            if (++row == kRows) { ++i; break; }
+            if (++row == rows) { ++i; break; }
             x = 0;
             continue;
         }
         if (cp == ' ' && x == 0) continue;
         // Move a word as a unit when it fits a fresh line. Very long words
         // (URLs/identifiers) still break by glyph rather than running off-screen.
-        if (cp != ' ' && (i == 0 || codepoints[i - 1] == ' ' || codepoints[i - 1] == '\n')) {
+        if (word_wrap && cp != ' ' && (i == 0 || codepoints[i - 1] == ' ' || codepoints[i - 1] == '\n')) {
             uint16_t word_width = 0;
             for (size_t j = i; j < size && codepoints[j] != ' ' && codepoints[j] != '\n'; ++j)
                 word_width += glyph_advance(codepoints[j]);
@@ -202,7 +202,7 @@ TextLayout layout_message(const char* p) {
         }
         const auto advance = glyph_advance(cp);
         if (x + advance > kTextWidth) { ++row; x = 0; }
-        if (row >= kRows) break;
+        if (row >= rows) break;
         if (cp == ' ' && x == 0) continue;
         out.glyphs[out.count++] = {cp, x, row};
         x += advance;
@@ -212,15 +212,15 @@ TextLayout layout_message(const char* p) {
         const auto width = glyph_advance(0x2026);
         while (out.count) {
             const auto& g = out.glyphs[out.count - 1];
-            if (g.row == kRows - 1 && (g.codepoint == ' ' || g.x + glyph_advance(g.codepoint) + width > kTextWidth)) --out.count;
+            if (g.row == rows - 1 && (g.codepoint == ' ' || g.x + glyph_advance(g.codepoint) + width > kTextWidth)) --out.count;
             else break;
         }
         x = 0;
-        if (out.count && out.glyphs[out.count - 1].row == kRows - 1) {
+        if (out.count && out.glyphs[out.count - 1].row == rows - 1) {
             const auto& g = out.glyphs[out.count - 1];
             x = g.x + glyph_advance(g.codepoint);
         }
-        out.glyphs[out.count++] = {0x2026, x, kRows - 1};
+        out.glyphs[out.count++] = {0x2026, x, static_cast<uint8_t>(rows - 1)};
     }
     // Trailing spaces at a wrap/newline are invisible and must not skew centering.
     size_t kept = 0;
@@ -234,7 +234,7 @@ TextLayout layout_message(const char* p) {
     }
     out.count = kept;
     // Center each wrapped line independently using its measured pixel width.
-    for (uint8_t line = 0; line < kRows; ++line) {
+    for (uint8_t line = 0; line < rows; ++line) {
         uint16_t width = 0;
         for (size_t g = 0; g < out.count; ++g) if (out.glyphs[g].row == line)
             width = out.glyphs[g].x + glyph_advance(out.glyphs[g].codepoint);
@@ -243,4 +243,14 @@ TextLayout layout_message(const char* p) {
     }
     return out;
 }
+TextLayout layout_message(const char* message) { return layout_text(message, kRows); }
+TextLayout layout_full_message(const char* message) {
+    auto layout = layout_text(message, kFullMessageRows);
+    // Dense word wrapping or many explicit line breaks can waste rows. Fall
+    // back to character wrapping and inline line breaks so all 120 codepoints
+    // fit at the original font size, without dropping any non-space text.
+    if (layout.truncated) layout = layout_text(message, kFullMessageRows, false, false);
+    return layout;
+}
+
 } // namespace ink

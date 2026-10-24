@@ -11,26 +11,39 @@ const snapshot={face:'hearts',message:'Hello, Pebble!',revision:3,nextPollSecond
 const request=(path,method='GET',body,headers={})=>new Request('https://preview.test'+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...headers},body:body===undefined?undefined:JSON.stringify(body)});
 async function mocked(callback,run){const saved=globalThis.fetch;globalThis.fetch=callback;try{await run()}finally{globalThis.fetch=saved}}
 
-test('public inbox privacy, validation, and atomic cooldown',async t=>{
- const {database}=await import('../scripts/local-db.mjs');
- env.DB=database();
- await t.test('static assets omit credentials and private history',async()=>{
-  for(const path of ['/','/app.js','/device.js','/style.css']){const r=await worker.fetch(request(path),env);assert.equal(r.status,200);const body=await r.text();assert.ok(!body.includes('test-writer')&&!body.includes('test-reader'));}
-  assert.equal((await worker.fetch(request('/api/display'),env)).status,404);
-  assert.equal((await worker.fetch(request('/api/message','DELETE'),env)).status,404);
-  assert.deepEqual(await(await worker.fetch(request('/api/status'),env)).json(),{retryAfterSeconds:0,intervalSeconds:60});
- });
- await t.test('invalid and cross-origin requests do not reserve or call API',()=>mocked(async()=>{throw Error('unexpected call')},async()=>{
-  assert.equal((await worker.fetch(request('/api/moments','POST',{message:'hi'},{Origin:'https://bad.test'}),env)).status,403);
-  for(const value of [{message:''},{message:'x'.repeat(121)},{message:'a\tb'},{message:'hello',face:'hearts'},{message:123},{message:'x'.repeat(3000)}])assert.equal((await worker.fetch(request('/api/moments','POST',value),env)).status,400);
+test('public queued sends have no cooldown or public history',async t=>{
+ await t.test('preview classifies without enqueuing and reveals only the chosen face',()=>mocked(async(url,init)=>{
+  assert.equal(new URL(url).pathname,'/v1/render');
+  assert.deepEqual(JSON.parse(init.body),{message:'I love you',state:{kind:'public-message'}});
+  return Response.json({face:'hearts',message:'I love you',selection:{reason:'selected'},private:'not public'});
+ },async()=>{
+  const r=await worker.fetch(request('/api/preview','POST',{message:'I love you'}),env);
+  assert.equal(r.status,200);assert.deepEqual(await r.json(),{face:'hearts'});
+  assert.equal((await worker.fetch(request('/api/preview','POST',{message:'hi',face:'hearts'}),env)).status,400);
+  assert.equal((await worker.fetch(request('/api/preview','POST',{message:'hi'},{Origin:'https://bad.test'}),env)).status,403);
  }));
- await t.test('concurrent sends admit exactly one writer',()=>{let calls=0;return mocked(async(url,init)=>{
-  calls++;assert.equal(init.method,'PUT');assert.equal(init.headers.Authorization,'Bearer test-writer');assert.deepEqual(JSON.parse(init.body),{message:'Hello!',state:{kind:'public-message'}});return Response.json({...snapshot,message:'Hello!'});
- },async()=>{const results=await Promise.all(Array.from({length:12},()=>worker.fetch(request('/api/moments','POST',{message:'Hello!'}),env)));assert.equal(results.filter(r=>r.status===200).length,1);assert.equal(results.filter(r=>r.status===429).length,11);assert.equal(calls,1);assert.ok(Number(results.find(r=>r.status===429).headers.get('Retry-After'))>0);const status=await(await worker.fetch(request('/api/status'),env)).json();assert.ok(status.retryAfterSeconds>0);assert.ok(!JSON.stringify(status).includes('Hello!'))})});
- env.DB.close();env.DB=database();
- await t.test('Unicode accepted, upstream errors hidden, cooldown retained on failure',()=>mocked(async()=>Response.json({error:'secret internal data'},{status:500}),async()=>{const r=await worker.fetch(request('/api/moments','POST',{message:'😀'.repeat(120)}),env);assert.equal(r.status,502);assert.ok(!(await r.text()).includes('secret internal data'));assert.equal((await worker.fetch(request('/api/moments','POST',{message:'again'}),env)).status,429)}));
- env.DB.close();env.DB=database();
- await t.test('oversized upstream response rejected',()=>mocked(async()=>new Response('x'.repeat(9000)),async()=>{assert.equal((await worker.fetch(request('/api/moments','POST',{message:'Hello'}),env)).status,502)}));env.DB.close();
+ await t.test('sending the previewed face queues it without reclassification',()=>mocked(async(url,init)=>{
+  assert.equal(new URL(url).pathname,'/v1/devices/pebble/messages');
+  assert.equal(JSON.parse(init.body).face,'sleepy');
+  return Response.json({queued:true,id:1},{status:202});
+ },async()=>{
+  const r=await worker.fetch(request('/api/moments','POST',{message:'Good night',face:'sleepy'}),env);
+  assert.equal(r.status,202);assert.equal((await r.json()).face,'sleepy');
+ }));
+ await t.test('static composer keeps the draft preview without cooldown or secrets',async()=>{
+  for(const path of ['/','/app.js','/style.css']){const r=await worker.fetch(request(path),env);assert.equal(r.status,200);const body=await r.text();assert.ok(!body.includes('test-writer')&&!body.includes('test-reader'));for(const removed of ['Available in','Checks about once','One message per minute'])assert.ok(!body.includes(removed));}
+  for(const path of ['/api/display','/api/status','/api/history','/api/moments'])assert.equal((await worker.fetch(request(path),env)).status,404);
+  assert.equal((await worker.fetch(request('/api/message','DELETE'),env)).status,404);
+ });
+ await t.test('cross-origin and invalid input rejected',()=>mocked(async()=>{throw Error('unexpected call')},async()=>{
+  assert.equal((await worker.fetch(request('/api/moments','POST',{message:'hi'},{Origin:'https://bad.test'}),env)).status,403);
+  for(const value of [{message:''},{message:'x'.repeat(121)},{message:'a\tb'},{message:'hello',face:'not-a-face'},{message:123}])assert.equal((await worker.fetch(request('/api/moments','POST',value),env)).status,400);
+ }));
+ await t.test('back-to-back and concurrent sends all enqueue',()=>{let id=0;return mocked(async(url,init)=>{
+  if(new URL(url).pathname==='/v1/render')return Response.json({face:'hearts'});
+  assert.equal(new URL(url).pathname,'/v1/devices/pebble/messages');assert.equal(init.method,'POST');assert.equal(init.redirect,'manual');assert.equal(init.headers.Authorization,'Bearer test-writer');assert.deepEqual(JSON.parse(init.body),{message:'Hello!',state:{kind:'public-message'},face:'hearts'});return Response.json({queued:true,id:++id},{status:202});
+ },async()=>{const results=await Promise.all(Array.from({length:12},()=>worker.fetch(request('/api/moments','POST',{message:'Hello!'}),env)));assert.ok(results.every(r=>r.status===202));assert.equal(id,12)})});
+ await t.test('upstream failure retains draft and has no client cooldown',()=>mocked(async()=>Response.json({error:'internal secret'},{status:500}),async()=>{for(let i=0;i<2;i++){const r=await worker.fetch(request('/api/moments','POST',{message:'Hi'}),env);assert.equal(r.status,502);assert.ok(!(await r.text()).includes('internal secret'))}}));
 });
 
 test('preview pixels match native firmware',async t=>{

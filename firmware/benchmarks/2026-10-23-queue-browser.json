@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-23",
+  "public_url": "https://pebble-little-moments.niko370669.chatgpt.site",
+  "queue": {
+    "back_to_back_browser_submissions": 2,
+    "accepted_without_cooldown": true,
+    "first_rendered_revision": 24,
+    "second_rendered_revision": 25,
+    "both_acknowledged": true,
+    "offline_archive_capacity": 64
+  },
+  "browsing": {
+    "wheel_gpio_events_verified": true,
+    "history_survived_firmware_restarts": true,
+    "recent_partial_render_ms": [
+      274,
+      273,
+      272,
+      276,
+      273,
+      273,
+      273
+    ],
+    "first_partial_after_cleanup_ms": [
+      953,
+      955
+    ],
+    "cleanup_render_ms": 1400,
+    "latest_partial_polarity_setting": "normal; full quality uses inverted controller setting",
+    "latest_visual_confirmation": "pending user confirmation",
+    "wifi_polling_paused_while_browsing": true
+  },
+  "power": {
+    "mode": "light sleep for GPIO wheel wake",
+    "energy_measured": false
+  }
+}

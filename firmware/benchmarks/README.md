@@ -1,5 +1,9 @@
 # CoreInk end-to-end benchmark — 2026-10-23
 
+Historical result: this measured the former latest-message/deep-sleep version.
+The current inbox queues messages and uses light sleep for wheel wake. These
+power and delivery figures must not be treated as measurements of that version.
+
 Public page: https://pebble-little-moments.niko370669.chatgpt.site
 
 Six live submissions passed through the public Worker, its D1 cooldown, the
@@ -75,7 +79,9 @@ firmware/.venv/bin/python firmware/tools/benchmark.py \
 
 The test replaces the displayed message and respects the public cooldown.
 Another sender can replace its revision, in which case it times out rather
-than reporting a false success. No credentials are needed for the public test.
+than reporting a false success. The current queued benchmark needs the existing ignored writer secrets file
+for read-only correlation of its own uniquely tagged message. Writer reads do
+not advance delivery; the device alone acknowledges rendered revisions.
 
 Raw evidence: [before](2026-10-23-before.json),
 [after](2026-10-23-after.json),

@@ -36,4 +36,16 @@ void render_into(const Content& content, Framebuffer& out) {
     }
 }
 Framebuffer render(const Content& content) { Framebuffer out{}; render_into(content, out); return out; }
+void render_full_message_into(const Content& content, Framebuffer& out) {
+    out.fill(0);
+    const auto layout = layout_full_message(content.message);
+    const int rows = layout.count ? layout.glyphs[layout.count - 1].row + 1 : 0;
+    const int top = (200 - rows * ink_assets::glyph_height) / 2;
+    for (size_t i = 0; i < layout.count; ++i) {
+        const auto& pos = layout.glyphs[i];
+        const auto& g = glyph(pos.codepoint);
+        blit(out, g.rows, ink_assets::glyph_width, ink_assets::glyph_height,
+             8 + pos.x, top + pos.row * ink_assets::glyph_height);
+    }
+}
 } // namespace ink
