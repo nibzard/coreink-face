@@ -9,6 +9,8 @@
     "build": "node scripts/build.mjs",
     "test": "vitest run --dir test",
     "test:runtime": "node scripts/runtime-test.mjs",
+    "test:messages": "node scripts/message-storage-test.mjs && python3 -m unittest discover -s scripts -p test_inspect_messages.py",
+    "messages:list": "python3 scripts/inspect-messages.py",
     "deploy:check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "test:package": "node scripts/package-test.mjs",

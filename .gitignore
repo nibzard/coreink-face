@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
 *.tgz
 worker-configuration.d.ts
 

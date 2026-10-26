@@ -6,6 +6,7 @@ import { agentGuide } from '../agent-guide.js';
 import { faces } from '../domain/catalog.js';
 import { BodyTooLarge, readJson } from '../adapters/bounded-json.js';
 import { renderer, type AppEnv } from './config.js';
+import { parseSenderMetadata } from './sender.js';
 export { Device } from './device.js';
 const errorMessages: Record<string, string> = {
   not_found: 'Route not found. See /openapi.json for available operations.',
@@ -28,6 +29,7 @@ async function authorized(request: Request, expected?: string): Promise<boolean>
   return crypto.subtle.timingSafeEqual(a!, b!);
 }
 async function route(request: Request, env: AppEnv): Promise<Response> {
+  const receivedAt = new Date().toISOString();
   const path = new URL(request.url).pathname;
   if (path === '/openapi.json' && request.method === 'GET') return json(openapi);
   if (path === '/llms.txt' && request.method === 'GET') return new Response(agentGuide, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
@@ -80,7 +82,10 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
   if (input.face === undefined && !['auto', 'rules', 'jev'].includes(env.FACE_PROVIDER)) return json({ error: 'invalid_provider_configuration', retryable: false }, 503);
   if (input.face === undefined && env.FACE_PROVIDER === 'jev' && !env.TYPESAFE_API_KEY) return json({ error: 'provider_not_configured', retryable: false }, 503);
   if (isEnqueue) {
-    const queued = await env.DEVICES.getByName(device![1]!).enqueue(input);
+    let sender;
+    try { sender = parseSenderMetadata(request.headers.get('X-Pebble-Sender')); }
+    catch { return json({ error: 'invalid_sender', message: 'Supply valid bounded sender metadata or omit X-Pebble-Sender.' }, 400); }
+    const queued = await env.DEVICES.getByName(device![1]!).enqueue(input, receivedAt, sender);
     return queued ? json({queued:true,id:queued.id},202) : json({error:'inbox_full',message:'The inbox is full. Please try again later.',retryable:true},503);
   }
   if (path === '/v1/decide' || path === '/v1/render') {

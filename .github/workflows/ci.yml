@@ -31,4 +31,6 @@ jobs:
       - run: npm test
       - run: npm run test:package
       - run: npm run test:runtime
+      - run: npm run test:messages
+      - run: npm test --prefix web/pebble
       - run: npm run deploy:check

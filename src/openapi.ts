@@ -23,7 +23,7 @@ const body = { required: true, content: { 'application/json': {
 const etag = { ETag: { description: 'Opaque display revision validator. Return unchanged in If-None-Match.', schema: { type: 'string' } } };
 export const openapi = {
   openapi: '3.1.1',
-  info: { title: 'CoreInk Face API', version: '0.2.0', description: 'Domain-neutral face and message selection. No tool execution. Device tokens are deployment-wide readers; API tokens are writers.' },
+  info: { title: 'CoreInk Face API', version: '0.2.0', description: 'Domain-neutral face and message selection. No tool execution. Device tokens are deployment-wide readers with acknowledgement access; API tokens are writers.' },
   servers: [{ url: '/' }],
   security: [{ bearerAuth: [] }],
   paths: {
@@ -35,7 +35,7 @@ export const openapi = {
     '/v1/devices/{id}/face': { parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }], get: { deprecated: true, operationId: 'legacyReadFace', parameters: [{ name: 'If-None-Match', in: 'header', schema: { type: 'string' } }], responses: { '200': { description: 'Legacy snapshot.', content: content('LegacySnapshot'), headers: etag }, '304': { description: 'Unchanged', headers: etag }, '401': errors['401'], '404': errors['404'] } } },
     '/v1/devices/{id}/messages': {
       parameters: [{name:'id',in:'path',required:true,schema:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,64}$'}}],
-      post:{operationId:'enqueueMessage',summary:'Queue a display message (writer)',description:'FIFO by acceptance order. Classified once when enqueued; retained offline until acknowledged. At most 256 pending messages. Do not blindly retry a submission.',requestBody:body,responses:{'202':{description:'Durably queued',content:{'application/json':{schema:{type:'object',required:['queued','id'],properties:{queued:{const:true},id:{type:'integer',minimum:1}}}}}},...errors}},
+      post:{parameters:[{name:'X-Pebble-Sender',in:'header',required:false,description:'Optional bounded JSON metadata asserted by an authenticated writer. Stored separately, never exposed to the classifier or display. Not proof of user identity.',content:{'application/json':{schema:ref('SenderMetadata')}}}],operationId:'enqueueMessage',summary:'Queue a display message (writer)',description:'FIFO by acceptance order. Classified once when enqueued; retained offline until acknowledged. At most 256 pending messages. Do not blindly retry a submission.',requestBody:body,responses:{'202':{description:'Durably queued',content:{'application/json':{schema:{type:'object',required:['queued','id'],properties:{queued:{const:true},id:{type:'integer',minimum:1}}}}}},...errors}},
     },
     '/v1/devices/{id}/display/ack': {
       parameters: [{name:'id',in:'path',required:true,schema:{type:'string'}}],
@@ -48,8 +48,24 @@ export const openapi = {
     },
   },
   components: {
-    securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'API_TOKEN for writers; DEVICE_TOKEN for read-only access to all devices.' } },
+    securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'API_TOKEN for writers; DEVICE_TOKEN for display polling and acknowledgement across all devices.' } },
     schemas: {
+      SenderMetadata: { type: 'object', additionalProperties: false,
+        required: ['source', 'fingerprint', 'fingerprintDay', 'country', 'asn', 'browser', 'device'],
+        properties: {
+          source: { const: 'pebble-inbox' },
+          fingerprint: { type: ['string', 'null'], pattern: '^[a-f0-9]{64}$' },
+          fingerprintDay: { type: ['string', 'null'], format: 'date' },
+          country: { type: ['string', 'null'], pattern: '^[A-Z]{2}$' },
+          asn: { type: ['integer', 'null'], minimum: 1, maximum: 4294967295 },
+          browser: { enum: ['Chrome', 'Firefox', 'Safari', 'Edge', 'Other'] },
+          device: { enum: ['mobile', 'tablet', 'desktop', 'unknown'] },
+        },
+        oneOf: [
+          { properties: { fingerprint: { type: 'null' }, fingerprintDay: { type: 'null' } } },
+          { properties: { fingerprint: { type: 'string' }, fingerprintDay: { type: 'string' } } },
+        ],
+      },
       RenderInput: { type: 'object', additionalProperties: false, minProperties: 1, description: `At most ${limits.inputBytes} UTF-8 bytes. Undefined fields are omitted in JavaScript.`, properties: {
         face: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$', description: 'Exact catalog ID; skips the chooser.' },
         message: { type: 'string', maxLength: limits.messageCodePoints, pattern: '^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F\\uD800-\\uDFFF]*$', description: 'Exact display text. Omit to preserve, empty string to clear. Well-formed Unicode code points, not grapheme clusters.' },

@@ -12,11 +12,14 @@ npm run build
 npm test
 npm run test:package
 npm run test:runtime
+npm run test:messages
+npm test --prefix web/pebble
 npm run deploy:check
 ```
 
 These checks run locally and do not deploy or require a TypeSafe key. The live
 smoke script is separate: it updates a remote demo device and may call Jev.
+Message inspection tooling and its tests require Python 3.11+.
 
 Keep domain types and display policy independent of Cloudflare and model
 providers. Add integrations through the `FaceChooser` port. Put use-case rules

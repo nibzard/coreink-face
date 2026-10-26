@@ -5,9 +5,10 @@ import {readFile} from 'node:fs/promises';
 test('public write executes inside the actual Workers runtime',async t=>{
  let Miniflare,convertV4MiniflareOptions;try{({Miniflare,convertV4MiniflareOptions}=await import('miniflare'))}catch{t.skip('Run from the main repository after npm ci for the workerd integration check');return}
  let calls=0;
- const mf=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:fileURLToPath(new URL('../worker/index.js',import.meta.url)),compatibilityDate:'2026-10-01',d1Databases:{DB:'test'},bindings:{PEBBLE_API_ORIGIN:'https://api.example.com',PEBBLE_DEVICE_ID:'pebble',PEBBLE_WRITER_TOKEN:'test-writer'},outboundService:async request=>{
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:fileURLToPath(new URL('../worker/index.js',import.meta.url)),compatibilityDate:'2026-10-01',d1Databases:{DB:'test'},bindings:{PEBBLE_API_ORIGIN:'https://api.example.com',PEBBLE_DEVICE_ID:'pebble',PEBBLE_WRITER_TOKEN:'test-writer',PEBBLE_SENDER_HASH_KEY:'test-key-'.repeat(8)},outboundService:async request=>{
   assert.equal(request.method,'POST');assert.equal(request.headers.get('Authorization'),'Bearer test-writer');const body=await request.json();
   if(new URL(request.url).pathname==='/v1/render') {assert.deepEqual(body,{message:'Runtime check',state:{kind:'public-message'}});return Response.json({face:'hearts'});}
+  const sender=JSON.parse(request.headers.get('X-Pebble-Sender'));assert.equal(sender.source,'pebble-inbox');assert.match(sender.fingerprint,/^[a-f0-9]{64}$/);assert.equal('ip' in sender,false);
   calls++;assert.equal(new URL(request.url).pathname,'/v1/devices/pebble/messages');assert.deepEqual(body,{message:'Runtime check',state:{kind:'public-message'},face:'hearts'});
   return Response.json({queued:true,id:calls},{status:202});
  }}));

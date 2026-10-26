@@ -14,7 +14,7 @@ CoreInk Face connects a TypeScript library, a Cloudflare API, and firmware for t
 
 **[Send a message to Pebble →](https://pebble-little-moments.niko370669.chatgpt.site)** · [Browse all 35 faces](assets/faces/face-map.svg) · [Firmware setup](firmware/README.md)
 
-The public inbox sends to Nikola’s device. Everyone shares one send per minute; each message replaces the current display. The device checks about once a minute and keeps its last screen when offline. A successful send confirms that the API saved the message.
+The public inbox queues messages for Nikola’s device, with no shared cooldown. Messages wait while the device is offline or browsing history, then advance after the device acknowledges rendering. A successful send confirms durable queuing, not delivery. The inbox explains the limited sender metadata saved with each message in its privacy notice.
 
 ## Start here
 
@@ -28,7 +28,7 @@ The public inbox sends to Nikola’s device. Everyone shares one send per minute
 
 ## How it works
 
-Your application sends a face, message, or state to the API. The API stores the current display; the CoreInk wakes, fetches it, redraws only when the pixels change, and returns to sleep. Face artwork and fonts live on the device, so it can retain its display through network outages.
+Your application sends a face, message, or state to the API. Queued messages are classified once and delivered in acceptance order; direct display updates remain available. The CoreInk wakes, fetches a display, redraws when pixels change, acknowledges it, and returns to sleep. Face artwork and fonts live on the device, so it can retain its display through network outages.
 
 - **Choose how expressions work.** An explicit face needs no AI. Rules and custom `FaceChooser` implementations use the same contract; Jev is optional.
 - **Keep the words you wrote.** Classification selects an expression without rewriting the message. The device wraps text onto two lines, with a matching preview in the public inbox.
@@ -207,5 +207,6 @@ This template uses deployment-wide tokens: a reader can read every device in tha
 - [Public inbox source](web/pebble/README.md): Worker composer, shared cooldown, and device preview.
 - [Library reference](docs/library.md): custom catalogs, providers, hold timing, errors, cancellation, assets.
 - [HTTP reference](docs/api.md): authentication, endpoints, polling, concurrency, compatibility.
+- [Inspect received messages](docs/message-inspection.md): read-only database queries, full text, timestamps, sender metadata, and retention.
 - [Migration from 0.1](docs/migration.md).
 - [Contributing and validation](CONTRIBUTING.md), [security reporting](SECURITY.md), [MIT license](LICENSE).
