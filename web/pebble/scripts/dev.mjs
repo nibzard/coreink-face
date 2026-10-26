@@ -4,7 +4,7 @@ import {Readable} from 'node:stream';
 import worker from '../worker/index.js';
 const secretPath=process.env.PEBBLE_SECRETS_FILE||new URL('../../../.deployment-secrets.json',import.meta.url);
 const secrets=JSON.parse(await readFile(secretPath,'utf8'));
-const env={PEBBLE_API_ORIGIN:'https://coreink-face-api.nikola-balic.workers.dev',PEBBLE_DEVICE_ID:'pebble',PEBBLE_READER_TOKEN:secrets.DEVICE_TOKEN,PEBBLE_WRITER_TOKEN:secrets.API_TOKEN};
+const env={PEBBLE_API_ORIGIN:'https://coreink-face-api.nikola-balic.workers.dev',PEBBLE_DEVICE_ID:'pebble',PEBBLE_READER_TOKEN:secrets.DEVICE_TOKEN,PEBBLE_WRITER_TOKEN:secrets.API_TOKEN,PEBBLE_SENDER_HASH_KEY:process.env.PEBBLE_SENDER_HASH_KEY||secrets.PEBBLE_SENDER_HASH_KEY};
 const port=Number(process.env.PORT||8807);
 const server=createServer(async(req,res)=>{try{
  const request=new Request('http://127.0.0.1:'+port+req.url,{method:req.method,headers:req.headers,...(!['GET','HEAD'].includes(req.method)?{body:Readable.toWeb(req),duplex:'half'}:{})});

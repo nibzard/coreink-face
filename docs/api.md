@@ -10,10 +10,22 @@ Canonical routes return the same `FaceFrame` used by the local library. The API 
 | --- | --- | --- | --- |
 | GET | `/v1/faces` | Reader or writer | `{faces: Face[]}` |
 | POST | `/v1/render` | Writer | `FaceFrame`, not persisted |
+| POST | `/v1/devices/:id/messages` | Writer | `{queued: true, id}`, 202 after durable enqueue |
+| POST | `/v1/devices/:id/display/ack` | Reader or writer | 204 for a matching revision; 409 if stale |
 | PUT | `/v1/devices/:id/display` | Writer | `DeviceDisplay`, persisted |
 | GET | `/v1/devices/:id/display` | Reader or writer | `DeviceDisplay`, or 304 |
 
-Authenticate with `Authorization: Bearer <token>`. `API_TOKEN` is the writer; `DEVICE_TOKEN` is a deployment-wide reader. Device IDs contain 1–64 letters, digits, underscores, or hyphens. These tokens do not provide tenant isolation. CORS is disabled by default.
+Authenticate with `Authorization: Bearer <token>`. `API_TOKEN` is the writer; `DEVICE_TOKEN` is a deployment-wide device reader that can also acknowledge rendered messages. Device IDs contain 1–64 letters, digits, underscores, or hyphens. These tokens do not provide tenant isolation. CORS is disabled by default.
+
+## Queue messages
+
+`POST /v1/devices/:id/messages` accepts the same input as rendering, classifies once, and saves a FIFO item. A 202 response confirms durable queuing, not display delivery. FIFO order is successful insertion order, which can differ from request arrival order while classification is in flight. Omitted message becomes empty text for a new queue item. At most 256 unacknowledged messages may wait; a full inbox returns 503 `inbox_full`. Requests are not deduplicated, so do not blindly retry after a timeout.
+
+The public inbox has no shared cooldown. Device-token display polls promote the next queued item once the previous item is acknowledged. After rendering (or verifying identical pixels), send `{"revision":123}` to `POST /v1/devices/:id/display/ack` when `requiresAck` is true. The current matching acknowledgement is idempotent; a stale revision returns 409. Writer-token display reads inspect the current frame without advancing the queue. Legacy `/face` reads also do not advance it.
+
+Queued rows store receipt time, acknowledgement time, and optional bounded sender metadata. Existing rows retain null values for previously unrecorded information. `X-Pebble-Sender` is an optional JSON header supplied by authenticated writers; malformed metadata returns 400 `invalid_sender`. It contains only the fields described in the [inspection guide](message-inspection.md#sender-metadata), never arbitrary request headers. These details are excluded from classifier input and public/device responses. Sender claims are informational, not authenticated user identities.
+
+The server retains the latest 64 acknowledged messages plus pending items. There is no application history endpoint; use the [read-only database inspection helper](message-inspection.md). Direct PUT updates below do not create archive entries.
 
 ## Publish
 
@@ -31,13 +43,13 @@ At least one input field is required. Unknown fields are rejected. Message lengt
 
 ## Poll
 
-The display result adds `revision` and `nextPollSeconds` to the frame. Render `face` and `message`; selection metadata is diagnostic. Skip a redraw only when both visible values are unchanged.
+The display result adds `revision`, `nextPollSeconds`, and `requiresAck` to the frame. Render `face` and `message`; selection metadata is diagnostic. Skip a redraw only when both visible values are unchanged, but acknowledge a queued revision after verifying those pixels.
 
 Save the response ETag and send it as `If-None-Match` on the next GET. A 304 has no body. Weak ETags and comma-separated validators are supported. A message-only update changes the revision. Do not parse ETags or infer revision values from them.
 
 ## Timing, persistence and retries
 
-Face changes have a 15-second hold. The latest pending candidate is applied by a Durable Object alarm once the hold expires, without another model call. Messages update immediately and survive face alarms. Input state is not persisted; messages, decisions, pending faces, revisions and sequence numbers are. Application logs omit state and credentials. TypeSafe's data handling applies to state sent to Jev.
+Face changes have a 15-second hold. The latest pending candidate is applied by a Durable Object alarm once the hold expires, without another model call. Direct PUT messages update immediately and survive face alarms; queued text waits for promotion. Input state is not persisted; messages, decisions, pending faces, revisions, sequence numbers, and queued-message timestamps/metadata are. Application logs omit state and credentials. TypeSafe's data handling applies to state sent to Jev.
 
 A later-arriving request supersedes an earlier in-flight classification; the older write returns 409 and cannot overwrite the newer result. PUT is a publish operation, not an idempotency promise: replaying it can call the model again and advance the revision. There is no automatic retry/deduplication. A timeout does not imply failure; GET the device before replaying a write.
 

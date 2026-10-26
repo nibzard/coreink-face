@@ -8,6 +8,10 @@ A mobile-first Cloudflare Worker composer: write, send, and immediately send ano
 
 The CoreInk wheel browses its latest 64 messages stored offline. Up is older, down is newer, and center resumes incoming messages. The public page does not reveal these messages.
 
+Sends also carry server-derived, bounded sender metadata: coarse country, ASN, browser family, device category, and optionally a daily keyed network/browser identifier. Set a dedicated random `PEBBLE_SENDER_HASH_KEY` server secret (at least 32 characters) to enable the identifier. Missing/short keys or missing edge IP disable it; `Sec-GPC: 1` also disables it. No raw IP or full user agent is stored or forwarded. The browser cannot override the forwarded metadata header. Previews never forward metadata, and send responses never expose it. The form links to `/privacy`, which explains collection and count-based retention. Metadata stays with the message: up to 256 pending and the latest 64 acknowledged items, with no separate metadata archive. It is a troubleshooting signal, not proof of a person's identity.
+
+Deploy the core API before this Site update, then configure the Site secret to enable daily grouping. See [message inspection and rollout](../../docs/message-inspection.md) for the read-only database tool and timestamp semantics. Local source edits do not publish the hosted Site.
+
 `npm test` covers concurrent immediate sends, validation, privacy, upstream failures, workerd execution, message-based previews, race handling, per-browser history isolation and persistence, and native rendering parity for the bitmap renderer. `npm run dev` serves localhost:8807 using the existing ignored root secrets file. The old D1 cooldown migration remains as deployment history; the composer no longer reads or writes it.
 
 Source is mirrored in `web/pebble`. Do not copy credentials or runtime data into source.

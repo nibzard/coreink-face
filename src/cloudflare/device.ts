@@ -4,9 +4,10 @@ import { applyDisplayPolicy } from '../domain/display-policy.js';
 import { DurableObject } from 'cloudflare:workers';
 import type { FaceDecision } from '../domain/types.js';
 import { renderer, type AppEnv } from './config.js';
+import type { SenderMetadata } from './sender.js';
 export interface Snapshot { revision: number; decision: FaceDecision; message: string; nextPollSeconds: number; requiresAck: boolean }
 type Row = { revision: number; request_seq: number; decision: string | null; pending: string | null; message: string; active_id: number | null };
-/** One coordination boundary per device. Only display decisions and the submitted display message are stored. */
+/** One coordination boundary per device, with a bounded queue and delivery archive. */
 export class Device extends DurableObject<AppEnv> {
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env);
@@ -21,6 +22,11 @@ export class Device extends DurableObject<AppEnv> {
     }
     if (!columns.some(column => column.name === 'active_id')) ctx.storage.sql.exec('ALTER TABLE display ADD COLUMN active_id INTEGER');
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, decision TEXT NOT NULL, message TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0)');
+    const messageColumns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(messages)').toArray();
+    // Legacy timestamps are unknown. Never backfill them with classification or migration time.
+    for (const name of ['received_at', 'delivered_at', 'sender']) {
+      if (!messageColumns.some(column => column.name === name)) ctx.storage.sql.exec(`ALTER TABLE messages ADD COLUMN ${name} TEXT`);
+    }
     ctx.storage.sql.exec('INSERT OR IGNORE INTO display (id) VALUES (1)');
   }
   private row(): Row {
@@ -30,11 +36,14 @@ export class Device extends DurableObject<AppEnv> {
     const row = this.row();
     return row.decision ? { revision: row.revision, decision: JSON.parse(row.decision), message: row.message, nextPollSeconds: 60, requiresAck: row.active_id !== null } : null;
   }
-  async enqueue(input: RenderInput): Promise<{id: number} | null> {
+  async enqueue(input: RenderInput, receivedAt = new Date().toISOString(), sender: SenderMetadata | null = null): Promise<{id: number} | null> {
     if (this.ctx.storage.sql.exec<{n:number}>('SELECT COUNT(*) AS n FROM messages WHERE delivered=0').one().n >= 256) return null;
     const decision = toDecision(await renderer(input.face === undefined ? this.env : { ...this.env, FACE_PROVIDER: 'rules' }).render(input));
     if (this.ctx.storage.sql.exec<{n:number}>('SELECT COUNT(*) AS n FROM messages WHERE delivered=0').one().n >= 256) return null;
-    return this.ctx.storage.sql.exec<{id:number}>('INSERT INTO messages (decision,message) VALUES (?,?) RETURNING id', JSON.stringify(decision), input.message ?? '').one();
+    return this.ctx.storage.sql.exec<{id:number}>(
+      'INSERT INTO messages (decision,message,received_at,sender) VALUES (?,?,?,?) RETURNING id',
+      JSON.stringify(decision), input.message ?? '', receivedAt, sender === null ? null : JSON.stringify(sender),
+    ).one();
   }
   async readForDevice(): Promise<Snapshot | null> {
     const current = this.row();
@@ -49,7 +58,7 @@ export class Device extends DurableObject<AppEnv> {
     if (current.revision !== revision) return false;
     if (current.active_id === null) return true;
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec('UPDATE messages SET delivered=1 WHERE id=?', current.active_id);
+      this.ctx.storage.sql.exec('UPDATE messages SET delivered=1, delivered_at=COALESCE(delivered_at, ?) WHERE id=?', new Date().toISOString(), current.active_id);
       this.ctx.storage.sql.exec('UPDATE display SET active_id=NULL WHERE id=1');
       // Keep a bounded archive; the device also keeps its own offline history.
       this.ctx.storage.sql.exec('DELETE FROM messages WHERE delivered=1 AND id NOT IN (SELECT id FROM messages WHERE delivered=1 ORDER BY id DESC LIMIT 64)');
