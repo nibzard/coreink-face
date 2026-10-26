@@ -1,0 +1,1 @@
+Resolve the eight review findings. Direct writes return queue_not_empty while messages await acknowledgement. ETags include acknowledgement state while revisions stay stable for retries. Library, web, firmware host, integration, package, and dry-run checks passed before commit. ESP32 target and physical hardware remain unverified.
