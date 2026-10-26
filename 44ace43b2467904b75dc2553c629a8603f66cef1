@@ -1,0 +1,1 @@
+Merge origin/main d73cbd3 without rewriting history. Preserve the sender hash configuration in the localhost adapter and combine queue documentation. All affected checks pass, including upstream message storage and sender tests. Firmware target and hardware validation remain outstanding as recorded on 4045abf.
