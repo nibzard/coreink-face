@@ -15,6 +15,7 @@ export interface FaceFrame<Id extends string = string> {
 export interface DeviceDisplay extends FaceFrame {
   revision: number;
   nextPollSeconds: number;
+  requiresAck: boolean;
 }
 export function toFrame(decision: FaceDecision, message = ''): FaceFrame {
   const { face, changedAt, decidedAt, ...selection } = decision;

@@ -30,7 +30,7 @@ public:
             setAutoDisplay(false);
             return true; // preserve the controller's previous-image bank between partial updates
         }
-        partial_ready=partial;
+        partial_ready=false; // Failed initialization must be retried.
         // Every explicit whole-screen update starts from a reset controller.
         // Reusing the driver's previous frame-bank/old-image state produced a
         // correct first frame but inverted subsequent updates on this device.
@@ -56,6 +56,7 @@ public:
             }
             endWrite();
         }
+        partial_ready=partial;
         return true;
     }
 private:

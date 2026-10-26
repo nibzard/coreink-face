@@ -57,7 +57,12 @@ export class Device extends DurableObject<AppEnv> {
     return true;
   }
 
-  async update(input: RenderInput): Promise<Snapshot | null> {
+  private hasQueuedMessages(): boolean {
+    return this.ctx.storage.sql.exec('SELECT id FROM messages WHERE delivered=0 LIMIT 1').toArray().length > 0;
+  }
+
+  async update(input: RenderInput): Promise<Snapshot | { error: 'queue_not_empty' } | null> {
+    if (this.hasQueuedMessages()) return { error: 'queue_not_empty' };
     const seq = this.ctx.storage.sql.exec<{ request_seq: number }>(
       'UPDATE display SET request_seq = request_seq + 1 WHERE id = 1 RETURNING request_seq',
     ).one().request_seq;
@@ -65,6 +70,7 @@ export class Device extends DurableObject<AppEnv> {
     // External classification yields: a newer request may now own this device.
     const current = this.row();
     if (current.request_seq !== seq) return null;
+    if (this.hasQueuedMessages()) return { error: 'queue_not_empty' };
     // Read the display AFTER classification; an alarm may have changed it meanwhile.
     const previous = current.decision ? JSON.parse(current.decision) as FaceDecision : undefined;
     return this.commit(applyDisplayPolicy(decision, previous, 15_000, new Date()), input.message);

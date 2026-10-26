@@ -39,3 +39,9 @@ it('offers strict provider failures and never disguises caller cancellation as a
   const cancelled = createFace({ chooser: { name: 'cancel', async choose(_state, _faces, options) { expect(options?.signal).toBe(controller.signal); controller.abort(); return { face: 'stars' }; } } });
   await expect(cancelled.render({ state: {} }, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
 });
+it('rejects unpaired surrogates but preserves valid Unicode pairs', () => {
+  for (const message of ['\ud800', '\udfff', 'a\ud800b', '\ud800'.repeat(120)]) {
+    expect(() => parseInput({ message })).toThrow(FaceError);
+  }
+  expect(parseInput({ message: '🌱'.repeat(120) }).message).toBe('🌱'.repeat(120));
+});

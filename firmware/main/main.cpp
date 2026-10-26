@@ -1,6 +1,7 @@
 #include "coreink.hpp"
 #include "render.hpp"
 #include "history.hpp"
+#include "display_update.hpp"
 #include "network.hpp"
 #include "storage.hpp"
 #include "display.hpp"
@@ -40,7 +41,7 @@ bool fault_api = false;
 int64_t fault_expires_ms = 0;
 int last_status = 0;
 int64_t last_refresh_ms = 0;
-RTC_DATA_ATTR uint32_t prior_sleep_seconds = 0;
+int64_t refresh_retry_ms = 0;
 constexpr gpio_num_t kButton = GPIO_NUM_38; // CoreInk dial middle; RTC wake capable
 constexpr gpio_num_t kWheelUp=GPIO_NUM_37;
 constexpr gpio_num_t kWheelDown=GPIO_NUM_39;
@@ -181,25 +182,36 @@ bool checkpoint() {
     if (configured && !device::save_cache(config, saved)) { serial_reply("INK ERROR cache_storage"); return false; }
     return true;
 }
+bool refresh_content(const ink::Content& content, bool fast=false, bool text_only=false) {
+    const bool ok = ink::update_display(state, content, checkpoint,
+        [=](const ink::Content& target) { return paint(target, fast, text_only); });
+    refresh_retry_ms = ok ? 0 : now_ms() + ink::kMinRefreshMs;
+    return ok;
+}
+void record_latest() {
+    if (ink::remember_shown(history, state)) {
+        if (!device::save_history(config, history)) serial_reply("INK ERROR history_storage");
+        checkpoint();
+    }
+}
 void flush_display() {
-    if (browsing || full_message || local_screen || !ink::pending(state)) return;
+    if (browsing || full_message || local_screen || !state.has_latest) return;
+    if (!ink::pending(state)) { record_latest(); return; }
+    if (now_ms() < refresh_retry_ms) return;
     // Compare actual pixels so unsupported glyphs, cropped text, and unknown
     // face IDs do not cause needless physical refreshes.
     ink::render_into(state.latest.content, pending_frame);
     if (state.has_shown) ink::render_into(state.shown, shown_frame);
     if (state.has_shown && shown_frame == pending_frame) {
         ink::displayed(state);
-        ink::remember(history,state.latest);device::save_history(config,history);checkpoint();
+        record_latest();
         return;
     }
     const bool interactive=now_ms()-last_interaction_ms<3000;
     if(!interactive) wait_until(now_ms() + ink::refresh_wait(now_ms(), last_refresh_ms));
     // Record uncertainty before touching hardware: loss of power midway through
     // a refresh must force recovery on the next boot, even after an HTTP 304.
-    state.has_shown = false;
-    if (!checkpoint()) return;
-    if (paint(state.latest.content,interactive)) { ink::displayed(state); checkpoint(); ink::remember(history,state.latest);device::save_history(config,history); }
-    else serial_reply("INK ERROR display_busy");
+    if (refresh_content(state.latest.content, interactive)) record_latest();
 }
 void show_local(const char* message) {
     ink::Content content = state.has_latest ? state.latest.content : ink::Content{};
@@ -209,13 +221,7 @@ void show_local(const char* message) {
     if (state.has_shown) ink::render_into(state.shown, shown_frame);
     if (state.has_shown && shown_frame == pending_frame) { local_screen = true; return; }
     wait_until(now_ms() + ink::refresh_wait(now_ms(), last_refresh_ms));
-    state.has_shown = false;
-    if (!checkpoint()) return;
-    if (paint(content)) {
-        state.shown = content;
-        state.has_shown = true;
-        checkpoint();
-    }
+    if (!refresh_content(content)) return;
     local_screen = true;
 }
 void show_status() {
@@ -228,10 +234,7 @@ void show_status() {
     request_status = false;
 }
 void sleep_for(uint32_t seconds) {
-    if(needs_cleanup) seconds=std::min<uint32_t>(seconds,std::max<uint32_t>(1,(ink::refresh_wait(now_ms(),last_refresh_ms)+999)/1000));
-    auto retained=state;
-    if(shown_full_message) retained.has_shown=false;
-    device::retain_cache(config, retained);
+    if(needs_cleanup) seconds=std::min<uint32_t>(seconds,std::max<int64_t>(1,(std::max<int64_t>(ink::refresh_wait(now_ms(),last_refresh_ms),refresh_retry_ms-now_ms())+999)/1000));
     if(now_ms()<led_until_ms) wait_until(led_until_ms);
     ESP_ERROR_CHECK(gpio_set_level(kStatusLed,1));
     // GPIO low-level wake lets either direction of the wheel wake the ESP32.
@@ -285,8 +288,7 @@ extern "C" void app_main() {
     ESP_ERROR_CHECK(gpio_wakeup_enable(kButton,GPIO_INTR_LOW_LEVEL));
     M5.Display.setAutoDisplay(false);
     M5.Display.setEpdMode(epd_mode_t::epd_quality);
-    last_refresh_ms = ink::refresh_reference(now_ms(), esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER, prior_sleep_seconds);
-    prior_sleep_seconds = 0; // a reset or early button wake still gets the full guard
+    last_refresh_ms = now_ms(); // Every restart gets the full refresh guard.
 
     uart_config_t uart{};
     uart.baud_rate = 115200;
@@ -348,16 +350,18 @@ extern "C" void app_main() {
             view_dirty=state.has_latest;
             serial_reply(full_message ? "INK VIEW full_message" : "INK VIEW current");
         }
-        if(view_dirty && now_ms()-last_interaction_ms>=120) {
+        if(view_dirty && now_ms()-last_interaction_ms>=120 && now_ms()>=refresh_retry_ms) {
             const auto content=browsing ? history.entries[history.selected].content : state.latest.content;
-            state.has_shown=false;checkpoint();
-            if(paint(content,true,full_message)) { state.shown=content;state.has_shown=true;checkpoint();device::save_history(config,history); }
-            view_dirty=false;
+            if(refresh_content(content,true,full_message)) {
+                if (!browsing) record_latest();
+                device::save_history(config,history);
+                view_dirty=false;
+            }
         }
         if(view_dirty) { vTaskDelay(pdMS_TO_TICKS(20));continue; }
-        if(needs_cleanup && state.has_shown && ink::refresh_wait(now_ms(),last_refresh_ms)==0) {
-            const auto content=state.shown;state.has_shown=false;checkpoint();
-            if(paint(content,false,shown_full_message)) {state.shown=content;state.has_shown=true;checkpoint();}
+        if(needs_cleanup && now_ms()>=refresh_retry_ms && ink::refresh_wait(now_ms(),last_refresh_ms)==0) {
+            const auto content=state.shown;
+            if (!refresh_content(content,false,shown_full_message)) needs_cleanup=true;
         }
         if (request_status) show_status();
         if (!browsing && !full_message && (request_poll || now_ms() >= next_poll)) {

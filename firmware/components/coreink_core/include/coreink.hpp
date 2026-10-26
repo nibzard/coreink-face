@@ -45,7 +45,6 @@ void accept(State& state, const Snapshot& snapshot);
 void displayed(State& state);
 uint32_t poll_delay(const State& state, const Config& config, bool low_battery);
 uint32_t retry_delay(uint32_t failures, uint32_t random_value);
-int64_t refresh_reference(int64_t now_ms, bool timer_wake, uint32_t slept_seconds);
 uint32_t refresh_wait(int64_t now_ms, int64_t last_ms);
 uint32_t crc32(const void* data, size_t length);
 // Strict UTF-8 decoding, rejecting overlong encodings, surrogates and > U+10FFFF.

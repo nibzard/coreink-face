@@ -9,5 +9,6 @@ struct History {
     uint32_t selected = 0;
 };
 void remember(History& history, const Snapshot& snapshot);
+bool remember_shown(History& history, const State& state);
 bool navigate(History& history, int direction);
 }

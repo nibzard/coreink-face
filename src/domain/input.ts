@@ -19,7 +19,7 @@ export function parseInput(value: unknown): RenderInput {
   if (!isRecord(value)) throw new FaceError('invalid_input', 'Expected an object containing state, message, or face.', [{ path: '', message: 'Expected an object.' }]);
   for (const key of Object.keys(value)) if (!['state', 'message', 'face'].includes(key)) issues.push({ path: `/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, message: 'Unknown field. Use state, message, or face.' });
   if (value.state === undefined && value.message === undefined && value.face === undefined) issues.push({ path: '', message: 'Provide state, message, or face.' });
-  if (value.message !== undefined && (typeof value.message !== 'string' || [...value.message].length > limits.messageCodePoints || /[\u0000-\u0009\u000B-\u001F\u007F]/u.test(value.message))) {
+  if (value.message !== undefined && (typeof value.message !== 'string' || /[\uD800-\uDFFF]/u.test(value.message) || [...value.message].length > limits.messageCodePoints || /[\u0000-\u0009\u000B-\u001F\u007F]/u.test(value.message))) {
     issues.push({ path: '/message', message: 'Expected plain text of at most 120 Unicode code points. Only newline control characters are allowed.' });
   }
   if (value.face !== undefined && (typeof value.face !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(value.face))) issues.push({ path: '/face', message: 'Expected a face ID: 1–64 letters, numbers, underscores, or hyphens.' });

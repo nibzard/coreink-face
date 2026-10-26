@@ -7,7 +7,7 @@ const errors = {
   '401': errorResponse('Missing or incorrect bearer token.'),
   '404': errorResponse('Device not initialized or route not found.'),
   '405': errorResponse('Wrong HTTP method. See Allow header.'),
-  '409': errorResponse('A newer state update superseded this one. Read current state.'),
+  '409': errorResponse('A newer update superseded this one, or queued messages are awaiting acknowledgement.'),
   '413': errorResponse('Input too large.'),
   '415': errorResponse('Content-Type must be application/json.'),
   '500': errorResponse('Internal failure; use requestId for diagnosis.'),
@@ -43,7 +43,7 @@ export const openapi = {
     },
     '/v1/devices/{id}/display': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }],
-      put: { operationId: 'updateDisplay', summary: 'Choose and persist a display (writer)', description: 'Omitted message preserves the previous text. Explicit face bypasses inference. Writes are not deduplicated; do not blindly retry.', requestBody: body, responses: { '200': { description: 'Current display', headers: etag, content: content('DeviceDisplay') }, ...errors } },
+      put: { operationId: 'updateDisplay', summary: 'Choose and persist a display (writer)', description: 'Omitted message preserves the previous text. Explicit face bypasses inference. Returns 409 queue_not_empty while any queued message awaits acknowledgement. Writes are not deduplicated; do not blindly retry.', requestBody: body, responses: { '200': { description: 'Current display', headers: etag, content: content('DeviceDisplay') }, ...errors } },
       get: { operationId: 'readDisplay', summary: 'Poll a display without inference (reader or writer)', description:'Device-token polls promote the next queued item only after the current item is acknowledged. Writer-token reads inspect without consuming. Return requiresAck revisions after completed rendering to POST display/ack.', parameters: [{ name: 'If-None-Match', in: 'header', schema: { type: 'string' } }], responses: { '200': { description: 'Current display', headers: etag, content: content('DeviceDisplay') }, '304': { description: 'Unchanged. No body.', headers: etag }, '401': errors['401'], '404': errors['404'] } },
     },
   },
@@ -52,7 +52,7 @@ export const openapi = {
     schemas: {
       RenderInput: { type: 'object', additionalProperties: false, minProperties: 1, description: `At most ${limits.inputBytes} UTF-8 bytes. Undefined fields are omitted in JavaScript.`, properties: {
         face: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$', description: 'Exact catalog ID; skips the chooser.' },
-        message: { type: 'string', maxLength: limits.messageCodePoints, pattern: '^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F]*$', description: 'Exact display text. Omit to preserve, empty string to clear. Unicode code points, not grapheme clusters.' },
+        message: { type: 'string', maxLength: limits.messageCodePoints, pattern: '^[^\\u0000-\\u0009\\u000B-\\u001F\\u007F\\uD800-\\uDFFF]*$', description: 'Exact display text. Omit to preserve, empty string to clear. Well-formed Unicode code points, not grapheme clusters.' },
         state: { type: 'object', additionalProperties: true, description: 'JSON observations, max depth 32. Explicit message is also passed to the chooser as state.message.' },
       } },
       Face: { type: 'object', required: ['id', 'name', 'description'], properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' } } },

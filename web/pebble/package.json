@@ -6,11 +6,6 @@
     "build": "bash scripts/build.sh",
     "validate": "node scripts/validate-artifact.mjs",
     "test": "node --test test/*.test.mjs",
-    "dev": "node scripts/dev.mjs",
-    "db:generate": "drizzle-kit generate"
-  },
-  "devDependencies": {
-    "drizzle-kit": "0.31.11",
-    "drizzle-orm": "0.45.4"
+    "dev": "node scripts/dev.mjs"
   }
 }

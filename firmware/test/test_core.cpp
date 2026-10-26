@@ -3,6 +3,7 @@
 #include "cache.hpp"
 #include "http_body.hpp"
 #include "history.hpp"
+#include "display_update.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -42,6 +43,36 @@ struct Stream {
     }
 };
 int main() {
+    // Failed persistence must prevent painting; failed painting must remain retryable.
+    ink::State screen{};
+    ink::Content target{};std::strcpy(target.message,"new display");
+    int paints=0;bool storage_ok=false,paint_ok=true;
+    auto checkpoint=[&]() { return storage_ok; };
+    auto paint=[&](const ink::Content&) { ++paints;return paint_ok; };
+    CHECK(!ink::update_display(screen,target,checkpoint,paint));
+    CHECK(paints==0 && !screen.has_shown);
+    storage_ok=true;paint_ok=false;
+    CHECK(!ink::update_display(screen,target,checkpoint,paint));
+    CHECK(paints==1 && !screen.has_shown);
+    paint_ok=true;
+    CHECK(ink::update_display(screen,target,checkpoint,paint));
+    CHECK(paints==2 && screen.has_shown && ink::equal(screen.shown,target));
+    int saves=0;
+    CHECK(!ink::update_display(screen,target,[&]() { return ++saves==1; },paint));
+    CHECK(!screen.has_shown);
+    CHECK(ink::update_display(screen,target,checkpoint,paint));
+    // Each completed revision enters history, even when its pixels are identical.
+    ink::History deliveries{};screen.has_latest=true;screen.latest.content=target;
+    screen.latest.revision=1;
+    CHECK(ink::remember_shown(deliveries,screen));
+    CHECK(!ink::remember_shown(deliveries,screen));
+    screen.latest.revision=2;
+    CHECK(!ink::pending(screen));
+    CHECK(ink::remember_shown(deliveries,screen));
+    CHECK(deliveries.count==2 && deliveries.entries[1].revision==2);
+    screen.latest.revision=3;screen.has_shown=false;
+    CHECK(!ink::remember_shown(deliveries,screen));
+
     ink::History history{};ink::Snapshot entry{};
     CHECK(!ink::navigate(history,-1));
     for(unsigned i=1;i<=70;i++){entry.revision=i;std::snprintf(entry.content.message,sizeof(entry.content.message),"message %u",i);ink::remember(history,entry);}
@@ -171,12 +202,6 @@ int main() {
     CHECK(ink::refresh_wait(15999, 1000) == 1);
     CHECK(ink::refresh_wait(16000, 1000) == 0);
     CHECK(ink::refresh_wait(0, 1000) == 15000);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, true, 60)) == 0);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, true, 15)) == 0);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, true, 14)) == 1000);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, true, 1)) == 14000);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, true, 0)) == 15000);
-    CHECK(ink::refresh_wait(100, ink::refresh_reference(100, false, 60)) == 15000);
     CHECK(ink::retry_delay(1, 0) == 30);
     CHECK(ink::retry_delay(100, 0) == 1800);
     CHECK(ink::retry_delay(100, 450) == 2250);

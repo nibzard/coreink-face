@@ -8,6 +8,6 @@ A mobile-first Cloudflare Worker composer: write, send, and immediately send ano
 
 The CoreInk wheel browses its latest 64 messages stored offline. Up is older, down is newer, and center resumes incoming messages. The public page does not reveal these messages.
 
-`npm test` covers concurrent immediate sends, validation, privacy, upstream failures, workerd execution, message-based previews, race handling, per-browser history isolation and persistence, and native rendering parity for the bitmap renderer. `npm run dev` serves localhost:8807 using the existing ignored root secrets file. The old D1 cooldown migration remains as deployment history; the composer no longer reads or writes it.
+`npm test` covers concurrent immediate sends, validation, privacy, upstream failures, workerd execution, message-based previews, race handling, per-browser history isolation and persistence, and native rendering parity for the bitmap renderer. `npm run dev` serves localhost:8807 using the existing ignored root secrets file. The old D1 cooldown migration remains in `drizzle/` as deployment history. The composer has no database binding or database tooling.
 
 Source is mirrored in `web/pebble`. Do not copy credentials or runtime data into source.

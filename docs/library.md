@@ -90,8 +90,14 @@ Important codes: `invalid_input`, `input_too_large`, `unknown_face`, `invalid_co
 - `api.render(input)` → `FaceFrame`.
 - `api.device(id).update(input)` → `DeviceDisplay`.
 - `api.device(id).read({etag?, signal?})` → a discriminated `modified` / `not-modified` result.
+- `api.device(id).acknowledge(revision)` → completes a delivery after rendering.
 
 Keep ETags opaque, including `W/` prefixes. A `modified` result has `display` and `etag`; `not-modified` has only `etag`. Use `nextPollSeconds` as a hint and apply your own battery budget.
+
+A device-token read can return a queued message. After rendering it, call
+`acknowledge(display.revision)` when `display.requiresAck` is true. This allows
+the next poll to advance the queue. Older servers that omit the flag default to false.
+Direct updates fail with `queue_not_empty` while queued messages await acknowledgement.
 
 `FaceApiError` adds `status` and `requestId` to `FaceError`. Transport errors use `network_error` or `timeout`; malformed success responses use `invalid_response`. The client never automatically retries writes. A timed-out write can still complete on the server; read before deciding whether to submit again.
 

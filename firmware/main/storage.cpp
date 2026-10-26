@@ -1,8 +1,6 @@
 #include "storage.hpp"
 #include "cache.hpp"
-#include "esp_attr.h"
 #include "esp_check.h"
-#include "esp_sleep.h"
 #include "mbedtls/sha256.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -15,7 +13,6 @@
 namespace device {
 namespace {
 using Cache = ink::CacheRecord;
-RTC_DATA_ATTR Cache retained{};
 static void scope(const ink::Config& c, uint8_t out[32]) {
     // Include the token so changing credentials also invalidates prior content.
     mbedtls_sha256_context ctx;
@@ -96,13 +93,8 @@ void clear_config() {
         ESP_ERROR_CHECK(nvs_commit(handle));
         nvs_close(handle);
     }
-    retained = {};
 }
 bool load_cache(const ink::Config& c, ink::State& state) {
-    // RTC memory is trusted only on an actual deep-sleep wake.
-    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED && restore(retained, c, state)) {
-        return true;
-    }
     Cache cache{};
     return read_blob("display", &cache, sizeof(cache)) && restore(cache, c, state);
 }
@@ -110,5 +102,4 @@ bool save_cache(const ink::Config& c, const ink::State& state) {
     const auto cache = seal(c, state);
     return write_blob("display", &cache, sizeof(cache));
 }
-void retain_cache(const ink::Config& c, const ink::State& state) { retained = seal(c, state); }
 } // namespace device

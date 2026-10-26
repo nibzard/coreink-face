@@ -16,7 +16,7 @@ it('compiles public JSON schemas and validates actual library frames', async () 
 it('keeps the documented input constraints consistent with runtime validation', () => {
   const ajv = new Ajv2020({ strict: false });
   const validate = ajv.compile(openapi.components.schemas.RenderInput);
-  for (const input of [{ face: 'hearts' }, { message: '' }, { state: {} }, { message: '🌱'.repeat(120) }, {}, { message: 'x'.repeat(121) }, { message: '\t' }, { extra: true }, { state: [] }, { face: '../x' }]) {
+  for (const input of [{ face: 'hearts' }, { message: '' }, { state: {} }, { message: '🌱'.repeat(120) }, {}, { message: 'x'.repeat(121) }, { message: '\t' }, { message: '\ud800' }, { message: '\udfff' }, { extra: true }, { state: [] }, { face: '../x' }]) {
     let accepted = true;
     try { parseInput(input); } catch { accepted = false; }
     expect(validate(input), JSON.stringify(input)).toBe(accepted);

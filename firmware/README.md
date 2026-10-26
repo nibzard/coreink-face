@@ -173,53 +173,51 @@ ASCII and Latin U+00A0–U+017F,
 including Čć, Žž, Šš, and Đđ, are embedded. Unsupported characters render as
 `?`. Unknown face IDs use `small-dots`, retaining the message.
 
-All screen updates, including status and error screens, share a 15-second
-minimum refresh interval, measured after the previous refresh completes.
-Every boot conservatively starts a fresh 15-second guard because reset timing
-may be unknown. A CoreInk-specific initialization adapter disables automatic
-refresh **before** the panel initializes, then hands the initialized driver to
-M5Unified. Merely setting `clear_display=false` is insufficient for M5GFX's M09
-driver: its default automatic refresh can display uninitialized RAM on wake.
-Only explicit, batched full-quality refreshes are sent. `redraw` forces recovery
-from a blank/incorrect image while preserving credentials and API content.
-The connected panel's polarity is explicitly configured for a white background
-with black artwork and text. The active-low GPIO10 indicator is explicitly held
-off during normal operation and deep sleep; it is not used as an error signal.
-Animations and partial refresh tuning
-are not part of this version.
+Automatic updates, status screens, and error screens use a 15-second minimum
+refresh interval. The interval starts when the previous refresh completes.
+Every restart starts a fresh guard. Direct interaction uses a fast partial
+refresh after a 120 ms debounce. A quality refresh cleans the panel after
+15 seconds without another update.
+
+The initialization adapter disables automatic refresh before the panel starts.
+It then gives the initialized driver to M5Unified. Setting
+`clear_display=false` alone does not prevent the M09 driver from refreshing
+uninitialized memory. `redraw` requests recovery while preserving credentials
+and API content. The panel uses a white background with black artwork and text.
+The active-low GPIO10 indicator pulses on wheel input and stays off during sleep.
 
 - Tap the **middle dial button** from history/status to return to the current message.
 - Tap on the current message to toggle the full-screen text view.
 - Hold it for at least one second, then release, to show status.
-- On a sleeping device, keep it held through startup to request status.
+- Hold the button through wake, then release it, to request status.
 - USB status commands give diagnostics without redrawing the display.
 
 Normal operation connects, polls, refreshes only when needed, disconnects
-Wi-Fi, and enters ESP32 deep sleep. The default API hint is 60 seconds; hints
+Wi-Fi, and enters ESP32 light sleep. The default API hint is 60 seconds; hints
 are clamped to 15–3600 seconds. Battery readings at or below 15% raise the
 interval to at least 900 seconds. Unknown battery readings do not trigger that
 policy. Failures add exponential backoff with jitter; authentication failures
 retry no more frequently than every 15 minutes. Numeric `Retry-After` values
 are honored up to one hour. HTTP-date `Retry-After` values are ignored.
 
-This uses ESP32 timer wake plus GPIO38 button wake while latching GPIO12 high
-to keep the board's power hold active. The active level is configured before
-releasing pad hold after wake, following [ESP-IDF's GPIO hold guidance](https://docs.espressif.com/projects/esp-idf/en/v5.3.4/esp32/api-reference/peripherals/gpio.html).
-It avoids RTC power-off sleep, which behaves differently
-under USB power. Battery life and actual sleep current still require hardware
-measurement; no runtime estimate is assumed.
+The timer or any wheel contact can wake the device. GPIO37 and GPIO39 detect
+wheel movement; GPIO38 detects the center button. GPIO12 keeps board power on.
+Light sleep preserves memory and the monotonic clock. Battery life and sleep
+current still require hardware measurement.
 
 ## Recovery
 
-The latest server content/ETag and last successfully painted content are
-separate. Changed content is checkpointed in NVS; unchanged revisions and
-routine polls do not write flash. RTC memory retains the freshest validator,
-retry count, and display state across deep sleep. Both caches have a schema
-version, CRC, and a SHA-256 scope tied to the API origin, device ID, and token.
-Changing that identity invalidates old content.
+The latest server content and validator are separate from the last painted content.
+Nonvolatile storage (NVS) checkpoints changed content and completed delivery revisions.
+Identical messages with different revisions each enter history without a panel refresh.
+Routine unchanged polls do not write flash. Normal memory preserves validators,
+retry counts, and display state across light sleep. The persistent cache has a
+schema version, a cyclic redundancy check (CRC), and a SHA-256 scope tied to
+the API origin, device ID, and token. Changing that identity invalidates old content.
 
 Before a physical refresh, NVS records that the screen's contents are uncertain.
-Only successful completion marks the frame as painted. If power fails midway,
+A failed checkpoint prevents painting. A failed paint remains pending and retries
+after 15 seconds. Only successful completion marks the frame as painted. If power fails midway,
 the next boot redraws the staged frame even when its fetch returns `304`.
 An error or status screen records its actual content so it can be restored to
 the server display on the next poll. Identical repeated error screens do not
@@ -312,7 +310,8 @@ treating a hardware release as verified, check these on an actual CoreInk:
 2. Publish a face, then a message-only change, then an empty message. Check all
    35 faces, Croatian text, explicit newlines, long text, and unsupported glyphs.
 3. Poll repeatedly with `304` responses; confirm no visible refresh. Rapidly
-   publish changes and press buttons; confirm refreshes remain at least 15s apart.
+   publish changes without button input; confirm refreshes remain at least 15s apart.
+   Check fast wheel navigation separately, followed by the quality cleanup refresh.
 4. Disconnect Wi-Fi, restore it, and try a wrong reader token. The last valid
    display must survive and recover without USB intervention.
 5. Reset during the refresh guard and cut power during a refresh. Check that
@@ -341,10 +340,9 @@ firmware/.venv/bin/python firmware/tools/benchmark.py \
 ```
 
 It submits through the public page’s endpoint without a face, correlates the
-returned revision with serial polling/render events, and records request latency,
+queued message with its display revision and serial polling/render events, and records request latency,
 end-to-end refresh completion, Wi-Fi/TLS poll duration, panel render duration,
-awake duration and battery voltage. It does not force USB polls or disable the
-production cooldown. This changes the device’s displayed message.
+awake duration and battery voltage. It does not force USB polls. This changes the device’s displayed message.
 
 Submissions occur just after sleep starts, deliberately testing delivery near
 the slow end of the polling cycle. Three samples are a small diagnostic run,
@@ -354,7 +352,7 @@ from its busy signal; the benchmark does not photograph the screen.
 USB powers and charges this board. The battery ADC is not a current sensor;
 voltage changes cannot establish joules consumed or battery life. For those,
 use a current logger on the battery supply, integrate voltage × current over
-complete unchanged and changed-display cycles, and measure deep sleep too.
+complete unchanged and changed-display cycles, and measure light sleep too.
 
 ## Source layout and references
 

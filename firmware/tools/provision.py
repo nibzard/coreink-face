@@ -72,7 +72,7 @@ def main():
     setup.add_argument("--device-id")
     setup.add_argument("--ssid")
     setup.add_argument("--poll-seconds", type=int, default=0)
-    setup.add_argument("--stay-awake", action="store_true", help="disable deep sleep for USB development")
+    setup.add_argument("--stay-awake", action="store_true", help="disable light sleep for USB development")
     sub.add_parser("status")
     sub.add_parser("poll")
     sub.add_parser("redraw")

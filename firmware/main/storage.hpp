@@ -10,5 +10,4 @@ bool save_config(const ink::Config& config);
 void clear_config();
 bool load_cache(const ink::Config& config, ink::State& state);
 bool save_cache(const ink::Config& config, const ink::State& state);
-void retain_cache(const ink::Config& config, const ink::State& state);
 }

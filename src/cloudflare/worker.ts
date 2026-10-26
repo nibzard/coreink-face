@@ -51,7 +51,7 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
     const stub = env.DEVICES.getByName(device[1]!);
     const snapshot = !isAdmin && device[2] === 'display' ? await stub.readForDevice() : await stub.read();
     if (!snapshot) return json({ error: 'device_not_initialized', message: 'Publish a display with PUT before polling this device.' }, 404);
-    const etag = `"display-v2-${snapshot.revision}"`;
+    const etag = `"display-v3-${snapshot.revision}-${snapshot.requiresAck ? 1 : 0}"`;
     const unchanged = request.headers.get('If-None-Match')?.split(',').some(value =>
       value.trim() === '*' || value.trim().replace(/^W\//, '') === etag);
     if (unchanged) return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'no-store' } });
@@ -88,8 +88,9 @@ async function route(request: Request, env: AppEnv): Promise<Response> {
     return json(path === '/v1/render' ? frame : { ...toDecision(frame), message: frame.message });
   }
   const snapshot = await env.DEVICES.getByName(device![1]!).update(input);
+  if (snapshot && 'error' in snapshot) return json({ error: snapshot.error, message: 'Wait for queued messages to be acknowledged before updating the display.', retryable: false }, 409);
   if (!snapshot) return json({ error: 'superseded', message: 'A newer state update took precedence.' }, 409);
-  return json(device![2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds, requiresAck: snapshot.requiresAck } : snapshot, 200, { ETag: `"display-v2-${snapshot.revision}"` });
+  return json(device![2] === 'display' ? { ...toFrame(snapshot.decision, snapshot.message), revision: snapshot.revision, nextPollSeconds: snapshot.nextPollSeconds, requiresAck: snapshot.requiresAck } : snapshot, 200, { ETag: `"display-v3-${snapshot.revision}-${snapshot.requiresAck ? 1 : 0}"` });
 }
 export default {
   async fetch(request, env) {

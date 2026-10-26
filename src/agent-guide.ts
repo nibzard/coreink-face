@@ -47,6 +47,9 @@ Unknown fields are errors. Never put a display message only inside state.
 ## Output and policy
 Render frame.face and frame.message. selection.candidate is diagnostic, not the face to render.
 selection.reason explains selected, unchanged, minimum-hold, low-confidence, or provider-unavailable.
+Direct PUT writes return 409 queue_not_empty while queued messages await acknowledgement.
+Device readers must acknowledge requiresAck revisions after rendering, using POST display/ack
+or client.device(id).acknowledge(revision). Acknowledgement changes the ETag, not the revision.
 changedAt tracks FACE changes, not message changes. Message updates also advance device revision.
 A 15s minimum face hold prevents flickering. Device alarms apply the latest pending candidate.
 Local library callers own timers and persistence. Retain the returned frame as previous and re-render after the hold.

@@ -10,6 +10,12 @@ void remember(History& h, const Snapshot& s) {
     h.entries[h.count++] = {s.content,s.revision};
     h.selected=h.count-1;
 }
+bool remember_shown(History& h, const State& s) {
+    if (!s.has_latest || !s.has_shown || !equal(s.shown, s.latest.content)) return false;
+    if (h.count && h.entries[h.count-1].revision == s.latest.revision) return false;
+    remember(h, s.latest);
+    return true;
+}
 bool navigate(History& h, int direction) {
     if (!h.count) return false;
     const auto next=static_cast<uint32_t>(std::clamp<int>(static_cast<int>(h.selected)+direction,0,static_cast<int>(h.count)-1));

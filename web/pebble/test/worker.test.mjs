@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import worker,{frameBits} from '../worker/index.js';
-const env={PEBBLE_API_ORIGIN:'https://api.example.com',PEBBLE_DEVICE_ID:'pebble',PEBBLE_READER_TOKEN:'test-reader',PEBBLE_WRITER_TOKEN:'test-writer'};
+const env={PEBBLE_API_ORIGIN:'https://api.example.com',PEBBLE_DEVICE_ID:'pebble',PEBBLE_WRITER_TOKEN:'test-writer'};
 const snapshot={face:'hearts',message:'Hello, Pebble!',revision:3,nextPollSeconds:60,selection:{source:'jev',reason:'selected'}};
 const request=(path,method='GET',body,headers={})=>new Request('https://preview.test'+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...headers},body:body===undefined?undefined:JSON.stringify(body)});
 async function mocked(callback,run){const saved=globalThis.fetch;globalThis.fetch=callback;try{await run()}finally{globalThis.fetch=saved}}
@@ -37,7 +37,7 @@ test('public queued sends have no cooldown or public history',async t=>{
  });
  await t.test('cross-origin and invalid input rejected',()=>mocked(async()=>{throw Error('unexpected call')},async()=>{
   assert.equal((await worker.fetch(request('/api/moments','POST',{message:'hi'},{Origin:'https://bad.test'}),env)).status,403);
-  for(const value of [{message:''},{message:'x'.repeat(121)},{message:'a\tb'},{message:'hello',face:'not-a-face'},{message:123}])assert.equal((await worker.fetch(request('/api/moments','POST',value),env)).status,400);
+  for(const value of [{message:'\ud800'},{message:'\udfff'.repeat(120)},{message:''},{message:'x'.repeat(121)},{message:'a\tb'},{message:'hello',face:'not-a-face'},{message:123}])assert.equal((await worker.fetch(request('/api/moments','POST',value),env)).status,400);
  }));
  await t.test('back-to-back and concurrent sends all enqueue',()=>{let id=0;return mocked(async(url,init)=>{
   if(new URL(url).pathname==='/v1/render')return Response.json({face:'hearts'});

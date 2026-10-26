@@ -37,8 +37,8 @@ function frame(value: unknown): FaceFrame {
 }
 function display(value: unknown): DeviceDisplay {
   const parsed = frame(value);
-  if (!isRecord(value) || !Number.isSafeInteger(value.revision) || Number(value.revision) < 0 || typeof value.nextPollSeconds !== 'number' || value.nextPollSeconds <= 0) throw invalidResponse();
-  return { ...parsed, revision: Number(value.revision), nextPollSeconds: value.nextPollSeconds };
+  if (!isRecord(value) || !Number.isSafeInteger(value.revision) || Number(value.revision) < 0 || typeof value.nextPollSeconds !== 'number' || !Number.isFinite(value.nextPollSeconds) || value.nextPollSeconds <= 0 || (value.requiresAck !== undefined && typeof value.requiresAck !== 'boolean')) throw invalidResponse();
+  return { ...parsed, revision: Number(value.revision), nextPollSeconds: value.nextPollSeconds, requiresAck: value.requiresAck === true };
 }
 /** Fetch-based client. Never retries writes or reads environment variables. */
 export function createClient(options: ClientOptions) {
@@ -63,6 +63,7 @@ export function createClient(options: ClientOptions) {
       throw new FaceError(signal.aborted ? 'timeout' : 'network_error', signal.aborted ? 'Request timed out. Read the device before retrying a write; it may have completed.' : 'Could not reach the face API. Check the base URL and connection.', [], true, { cause: error });
     }
     if (response.status === 304 && method === 'GET' && etag) return { response, body: null };
+    if (response.status === 204 && method === 'POST' && path.endsWith('/display/ack')) return { response, body: null };
     let payload: unknown;
     try { payload = await readJson(response.body, 128 * 1024); }
     catch {
@@ -90,6 +91,11 @@ export function createClient(options: ClientOptions) {
       if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new FaceError('invalid_device_id', 'Device IDs must contain 1–64 letters, numbers, underscores, or hyphens.');
       const path = `/v1/devices/${id}/display`;
       return {
+        async acknowledge(revision: number, opts?: RequestOptions): Promise<void> {
+          if (!Number.isSafeInteger(revision) || revision < 0) throw new FaceError('invalid_acknowledgement', 'Revision must be a nonnegative safe integer.');
+          const result = await request(path + '/ack', 'POST', { revision }, opts);
+          if (result.response.status !== 204) throw invalidResponse();
+        },
         async update<Context extends object>(input: RenderInput<string, Context>, opts?: RequestOptions): Promise<DeviceDisplay> {
           return display((await request(path, 'PUT', parseInput(input), opts)).body);
         },

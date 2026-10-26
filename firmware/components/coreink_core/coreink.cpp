@@ -154,12 +154,6 @@ uint32_t retry_delay(uint32_t failures, uint32_t random_value) {
     uint32_t base = std::min<uint32_t>(1800, 30U << std::min<uint32_t>(failures ? failures - 1 : 0, 6));
     return base + random_value % (base / 4 + 1);
 }
-int64_t refresh_reference(int64_t now, bool timer_wake, uint32_t slept_seconds) {
-    // A completed hardware timer sleep is elapsed time since any prior redraw.
-    // Reset and button wakes cannot prove that the timer duration elapsed.
-    const uint32_t elapsed = timer_wake ? std::min<uint32_t>(slept_seconds, kMinRefreshMs / 1000) * 1000 : 0;
-    return now - elapsed;
-}
 uint32_t refresh_wait(int64_t now, int64_t last) {
     if (now < last) return kMinRefreshMs;
     const auto elapsed = now - last;

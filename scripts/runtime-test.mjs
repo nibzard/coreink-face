@@ -117,5 +117,32 @@ try {
   assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryA.revision}})).status,409);
   assert.equal((await call(ackPath,{method:'POST',token:'runtime-test-reader',body:{revision:deliveryB.revision}})).status,204);
   assert.equal((await(await call(displayPath,{token:'runtime-test-reader'})).json()).requiresAck,false);
+  // Direct writes never displace accepted queue entries, even before promotion.
+  const mixed='/v1/devices/mixed';
+  for (const message of ['First', 'Second']) await call(mixed+'/messages',{method:'POST',body:{face:'hearts',message}});
+  for (let i=0;i<2;i++) {
+    const rejected=await call(mixed+'/display',{method:'PUT',body:{face:'hearts',message:'Direct'}});
+    assert.equal(rejected.status,409);assert.equal((await rejected.json()).error,'queue_not_empty');
+    const delivered=await call(mixed+'/display',{token:'runtime-test-reader'});
+    const body=await delivered.json();
+    assert.equal(body.message,i===0?'First':'Second');
+    for (const route of ['display','state']) {
+      const blocked=await call(mixed+'/'+route,{method:'PUT',body:{face:'hearts',message:'Must not replace active delivery'}});
+      assert.equal(blocked.status,409);assert.equal((await blocked.json()).error,'queue_not_empty');
+    }
+    assert.equal((await call(mixed+'/display/ack',{method:'POST',token:'runtime-test-reader',body:{revision:body.revision}})).status,204);
+    if(i===1) {
+      const after=await call(mixed+'/display',{token:'runtime-test-reader',headers:{'If-None-Match':delivered.headers.get('ETag')}});
+      assert.equal(after.status,200);assert.equal((await after.json()).requiresAck,false);
+      assert.notEqual(after.headers.get('ETag'),delivered.headers.get('ETag'));
+      assert.equal((await call(mixed+'/display/ack',{method:'POST',token:'runtime-test-reader',body:{revision:body.revision}})).status,204);
+    }
+  }
+  assert.equal((await call(mixed+'/display',{method:'PUT',body:{face:'hearts',message:'Direct'}})).status,200);
+  assert.equal((await(await call(mixed+'/display',{token:'runtime-test-reader'})).json()).message,'Direct');
+  for(const message of [String.fromCharCode(0xd800),String.fromCharCode(0xdfff).repeat(120)]) {
+    assert.equal((await call('/v1/devices/unicode/messages',{method:'POST',body:{face:'hearts',message}})).status,400);
+  }
+  assert.equal((await call('/v1/devices/unicode/display',{token:'runtime-test-reader'})).status,404);
   console.log('Runtime checks passed: authentication, validation, catalog, device isolation, ETags, SQLite restart persistence, delayed face updates.');
 } finally { await stop(); await rm(temp, { recursive: true, force: true }); }

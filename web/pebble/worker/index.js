@@ -92,7 +92,7 @@ export default {
         try { input = await boundedJson(request.body, 2048); }
         catch (error) { return json({ error: error.message === 'too_large' ? 'This moment is a little too long.' : 'Please check your message and try again.' }, 400); }
         if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'message' && (preview || key !== 'face')) ||
-            typeof input.message !== 'string' || !input.message.trim() || Array.from(input.message).length > 120 ||
+            typeof input.message !== 'string' || /[\uD800-\uDFFF]/u.test(input.message) || !input.message.trim() || Array.from(input.message).length > 120 ||
             /[\u0000-\u0009\u000B-\u001F\u007F]/u.test(input.message))
           return json({ error: 'Write a message of 1–120 characters. New lines are welcome.' }, 400);
         if(input.face !== undefined && (typeof input.face !== 'string' || !Object.hasOwn(DEVICE_ASSETS.faces,input.face)))

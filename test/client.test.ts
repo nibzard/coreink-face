@@ -35,3 +35,28 @@ it('validates responses and rejects unsafe configuration or device IDs', async (
   expect(() => api.device('../other')).toThrow();
   expect(() => createClient({ baseUrl: 'https://user:pass@example.com', token: 'test' })).toThrow();
 });
+it('preserves acknowledgement state and acknowledges without parsing a 204 body', async () => {
+  let acknowledged = false;
+  const api = createClient({ baseUrl: 'https://example.com', token: 'reader', fetch: async (url, init) => {
+    if (String(url).endsWith('/ack')) {
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(init?.body as string)).toEqual({ revision: 7 });
+      acknowledged = true;
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({ ...frame, revision: 7, nextPollSeconds: 60, requiresAck: !acknowledged });
+  } });
+  const device = api.device('pebble');
+  expect(await device.read()).toMatchObject({ display: { requiresAck: true } });
+  await device.acknowledge(7);
+  expect(await device.read()).toMatchObject({ display: { requiresAck: false } });
+  await expect(device.acknowledge(-1)).rejects.toMatchObject({ code: 'invalid_acknowledgement' });
+});
+it('rejects invalid acknowledgement flags and propagates stale acknowledgement errors', async () => {
+  const api = createClient({ baseUrl: 'https://example.com', token: 'reader', fetch: async (_url, init) => {
+    if (init?.method === 'POST') return Response.json({ error: 'stale_revision' }, { status: 409 });
+    return Response.json({ ...frame, revision: 1, nextPollSeconds: 60, requiresAck: 'yes' });
+  } });
+  await expect(api.device('pebble').read()).rejects.toMatchObject({ code: 'invalid_response' });
+  await expect(api.device('pebble').acknowledge(1)).rejects.toMatchObject({ code: 'stale_revision', status: 409 });
+});
